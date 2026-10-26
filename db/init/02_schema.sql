@@ -648,7 +648,7 @@ COMMENT ON COLUMN public.drug_ingredient.data_source IS '데이터출처 (허가
 CREATE TABLE public.dur_rule (
     rule_id bigint NOT NULL,
     rule_type character varying(20) NOT NULL,
-    item_seq character varying(20) NOT NULL,
+    item_seq character varying(20),
     ingr_name character varying(200),
     mixture_item_seq character varying(20),
     mixture_item_name character varying(300),
@@ -657,6 +657,10 @@ CREATE TABLE public.dur_rule (
     etc_otc character varying(10),
     raw_json jsonb,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    rule_source character varying(20),
+    target_dur_ingr_code character varying(20),
+    mixture_dur_ingr_code character varying(20),
+    dur_seq character varying(20),
     CONSTRAINT ck_dur_rule_type CHECK (((rule_type)::text = ANY ((ARRAY['병용금기'::character varying, '임부금기'::character varying, '연령금기'::character varying, '노인주의'::character varying, '서방정분할'::character varying, '효능군중복'::character varying, '용량주의'::character varying, '투여기간주의'::character varying])::text[])))
 );
 
@@ -743,6 +747,34 @@ COMMENT ON COLUMN public.dur_rule.raw_json IS '응답원본';
 --
 
 COMMENT ON COLUMN public.dur_rule.updated_at IS '수정일시';
+
+
+--
+-- Name: COLUMN dur_rule.rule_source; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.dur_rule.rule_source IS '규칙출처';
+
+
+--
+-- Name: COLUMN dur_rule.target_dur_ingr_code; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.dur_rule.target_dur_ingr_code IS '대상DUR성분코드';
+
+
+--
+-- Name: COLUMN dur_rule.mixture_dur_ingr_code; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.dur_rule.mixture_dur_ingr_code IS '병용상대DUR성분코드';
+
+
+--
+-- Name: COLUMN dur_rule.dur_seq; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.dur_rule.dur_seq IS 'DUR원본번호';
 
 
 --
