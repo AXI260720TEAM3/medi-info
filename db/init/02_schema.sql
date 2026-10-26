@@ -60,6 +60,7 @@ CREATE TABLE public.app_user (
     password_hash character varying(255) NOT NULL,
     role character varying(10) DEFAULT 'user'::character varying NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
+    last_login_at timestamp with time zone,
     CONSTRAINT ck_app_user_role CHECK (((role)::text = ANY ((ARRAY['user'::character varying, 'admin'::character varying])::text[])))
 );
 
@@ -104,6 +105,13 @@ COMMENT ON COLUMN public.app_user.role IS '권한 (user/admin)';
 --
 
 COMMENT ON COLUMN public.app_user.created_at IS '가입일시';
+
+
+--
+-- Name: COLUMN app_user.last_login_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.app_user.last_login_at IS '마지막로그인일시';
 
 
 --
@@ -1635,19 +1643,92 @@ ALTER SEQUENCE public.synonym_synonym_id_seq OWNED BY public.synonym.synonym_id;
 
 
 --
+-- Name: user_consent; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.user_consent (
+    consent_id bigint NOT NULL,
+    user_id bigint NOT NULL,
+    consent_type character varying(10) NOT NULL,
+    terms_version character varying(20) NOT NULL,
+    agreed_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT ck_user_consent_type CHECK (((consent_type)::text = ANY ((ARRAY['개인정보'::character varying, '건강정보'::character varying])::text[])))
+);
+
+
+--
+-- Name: TABLE user_consent; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.user_consent IS '동의 기록';
+
+
+--
+-- Name: COLUMN user_consent.consent_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.user_consent.consent_id IS '동의ID';
+
+
+--
+-- Name: COLUMN user_consent.user_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.user_consent.user_id IS '사용자ID';
+
+
+--
+-- Name: COLUMN user_consent.consent_type; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.user_consent.consent_type IS '동의종류 (개인정보/건강정보)';
+
+
+--
+-- Name: COLUMN user_consent.terms_version; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.user_consent.terms_version IS '약관버전';
+
+
+--
+-- Name: COLUMN user_consent.agreed_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.user_consent.agreed_at IS '동의일시';
+
+
+--
+-- Name: user_consent_consent_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.user_consent_consent_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: user_consent_consent_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.user_consent_consent_id_seq OWNED BY public.user_consent.consent_id;
+
+
+--
 -- Name: user_med; Type: TABLE; Schema: public; Owner: -
 --
 
 CREATE TABLE public.user_med (
     med_id bigint NOT NULL,
-    user_id bigint,
-    session_id character varying(64),
+    user_id bigint NOT NULL,
     item_seq character varying(20) NOT NULL,
     added_by character varying(10) DEFAULT '검색'::character varying NOT NULL,
     seen_update_de date,
     added_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT ck_user_med_added_by CHECK (((added_by)::text = ANY ((ARRAY['검색'::character varying, '사진'::character varying])::text[]))),
-    CONSTRAINT ck_user_med_owner CHECK (((user_id IS NOT NULL) OR (session_id IS NOT NULL)))
+    CONSTRAINT ck_user_med_added_by CHECK (((added_by)::text = ANY ((ARRAY['검색'::character varying, '사진'::character varying])::text[])))
 );
 
 
@@ -1669,14 +1750,7 @@ COMMENT ON COLUMN public.user_med.med_id IS '내약ID';
 -- Name: COLUMN user_med.user_id; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON COLUMN public.user_med.user_id IS '사용자ID (로그인 후)';
-
-
---
--- Name: COLUMN user_med.session_id; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.user_med.session_id IS '세션ID (로그인 전)';
+COMMENT ON COLUMN public.user_med.user_id IS '사용자ID';
 
 
 --
@@ -1859,6 +1933,13 @@ ALTER TABLE ONLY public.synonym ALTER COLUMN synonym_id SET DEFAULT nextval('pub
 
 
 --
+-- Name: user_consent consent_id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_consent ALTER COLUMN consent_id SET DEFAULT nextval('public.user_consent_consent_id_seq'::regclass);
+
+
+--
 -- Name: user_med med_id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -1999,6 +2080,22 @@ ALTER TABLE ONLY public.sync_log
 
 ALTER TABLE ONLY public.synonym
     ADD CONSTRAINT pk_synonym PRIMARY KEY (synonym_id);
+
+
+--
+-- Name: user_consent pk_user_consent; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_consent
+    ADD CONSTRAINT pk_user_consent PRIMARY KEY (consent_id);
+
+
+--
+-- Name: user_consent uq_user_consent; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_consent
+    ADD CONSTRAINT uq_user_consent UNIQUE (user_id, consent_type, terms_version);
 
 
 --
@@ -2152,17 +2249,10 @@ CREATE INDEX ix_pharmacy_region ON public.pharmacy USING btree (sido, sigungu);
 
 
 --
--- Name: uq_user_med_session; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX uq_user_med_session ON public.user_med USING btree (session_id, item_seq) WHERE (session_id IS NOT NULL);
-
-
---
 -- Name: uq_user_med_user; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX uq_user_med_user ON public.user_med USING btree (user_id, item_seq) WHERE (user_id IS NOT NULL);
+CREATE UNIQUE INDEX uq_user_med_user ON public.user_med USING btree (user_id, item_seq);
 
 
 --
@@ -2243,6 +2333,14 @@ ALTER TABLE ONLY public.eval_result
 
 ALTER TABLE ONLY public.pharmacy_hours
     ADD CONSTRAINT fk_pharmacy_hours_pharmacy FOREIGN KEY (hpid) REFERENCES public.pharmacy(hpid) ON DELETE CASCADE;
+
+
+--
+-- Name: user_consent fk_user_consent_user; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_consent
+    ADD CONSTRAINT fk_user_consent_user FOREIGN KEY (user_id) REFERENCES public.app_user(user_id) ON DELETE CASCADE;
 
 
 --
