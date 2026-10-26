@@ -21,6 +21,8 @@ services:
     env_file: .env
     environment:
       DB_HOST: db
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "8000:8000"
     volumes:
