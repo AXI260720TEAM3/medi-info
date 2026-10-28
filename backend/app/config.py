@@ -7,3 +7,4 @@ DB_PORT = os.getenv("DB_PORT")
 DB_NAME = os.getenv("DB_NAME")
 
 OLLAMA_URL = os.getenv("OLLAMA_URL")
+DATA_GO_KR_KEY = os.getenv("DATA_GO_KR_KEY")
