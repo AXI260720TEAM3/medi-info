@@ -753,7 +753,7 @@ CREATE TABLE public.symptom_keyword (
     action character varying(20) DEFAULT '119'::character varying NOT NULL,
     is_active boolean DEFAULT true NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT ck_symptom_keyword_action CHECK (((action)::text = ANY ((ARRAY['119'::character varying, '응급실'::character varying, '병원'::character varying])::text[])))
+    CONSTRAINT ck_symptom_keyword_action CHECK (((action)::text = ANY ((ARRAY['119'::character varying, '109'::character varying, '응급실'::character varying, '병원'::character varying])::text[])))
 );
 
 
@@ -789,7 +789,7 @@ COMMENT ON COLUMN public.symptom_keyword.category IS '분류 (흉통, 호흡곤�
 -- Name: COLUMN symptom_keyword.action; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON COLUMN public.symptom_keyword.action IS '안내 (119/응급실/병원)';
+COMMENT ON COLUMN public.symptom_keyword.action IS '안내 (119/109/응급실/병원), 109는 자살예방 상담전화';
 
 
 --
