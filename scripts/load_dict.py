@@ -18,10 +18,18 @@ conninfo = (
 
 with psycopg.connect(conninfo) as conn:
     for row in rows:
-        conn.execute(
-            "INSERT INTO symptom_keyword (keyword, category, action) VALUES (%s, %s, %s)",
+                conn.execute(
+            """
+            INSERT INTO symptom_keyword (keyword, category, action)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (keyword) DO UPDATE
+            SET category = EXCLUDED.category, action = EXCLUDED.action
+            """,
             (row["keyword"], row["category"], row["action"]),
         )
 
+    keywords = [row["keyword"] for row in rows]
+    conn.execute("DELETE FROM symptom_keyword WHERE keyword <> ALL(%s)", (keywords,))
+    
     count = conn.execute("SELECT count(*) FROM symptom_keyword").fetchone()[0]
     print("넣은 뒤 symptom_keyword 행 수:", count)
