@@ -1,4 +1,5 @@
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Response
+from ..deps import get_current_user
 from pydantic import BaseModel, Field
 from ..services.auth import create_user, login_user, create_token, TOKEN_HOURS
 
@@ -51,3 +52,8 @@ def login(data: LoginRequest, response: Response):
 def logout(response: Response):
     response.delete_cookie(COOKIE_NAME)
     return {"ok": True}
+
+
+@router.get("/me")
+def me(user: dict = Depends(get_current_user)):
+    return user

@@ -74,3 +74,19 @@ def login_user(login_id: str, password: str):
 def create_token(user_id: int) -> str:
     expire = datetime.now(timezone.utc) + timedelta(hours=TOKEN_HOURS)
     return jwt.encode({"sub": str(user_id), "exp": expire}, JWT_SECRET, algorithm="HS256")
+
+def read_token(token: str):
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+    except jwt.InvalidTokenError:
+        return None
+    return int(payload["sub"])
+
+
+def get_user(user_id: int):
+    with SessionLocal() as db:
+        row = db.execute(
+            text("SELECT user_id, login_id, role FROM app_user WHERE user_id = :user_id"),
+            {"user_id": user_id},
+        ).mappings().first()
+    return dict(row) if row else None
