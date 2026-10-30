@@ -1,6 +1,8 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel, Field
-from ..services.auth import create_user
+from ..services.auth import create_user, login_user, create_token, TOKEN_HOURS
+
+COOKIE_NAME = "access_token"
 
 router = APIRouter(
     prefix="/api/auth",
@@ -23,3 +25,29 @@ def signup(data: SignupRequest):
         raise HTTPException(status_code=409, detail="이미 사용 중인 아이디예요.")
 
     return {"user_id": user_id, "login_id": data.login_id}
+
+class LoginRequest(BaseModel):
+    login_id: str
+    password: str
+
+
+@router.post("/login")
+def login(data: LoginRequest, response: Response):
+    user_id = login_user(data.login_id, data.password)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="아이디 또는 비밀번호가 맞지 않아요.")
+
+    response.set_cookie(
+        COOKIE_NAME,
+        create_token(user_id),
+        httponly=True,
+        samesite="lax",
+        max_age=TOKEN_HOURS * 3600,
+    )
+    return {"user_id": user_id, "login_id": data.login_id}
+
+
+@router.post("/logout")
+def logout(response: Response):
+    response.delete_cookie(COOKIE_NAME)
+    return {"ok": True}
