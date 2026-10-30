@@ -1,6 +1,6 @@
 from functools import lru_cache
 import httpx
-
+from concurrent.futures import ThreadPoolExecutor
 from ..config import DATA_GO_KR_KEY
 from .drug_api import get_by_seq
 
@@ -29,14 +29,21 @@ def get_taboo_partners(item_seq):
 def check_together(seq_a, seq_b):
     reasons = []
 
-    # 1) 병용금기: A의 금기 짝에 B가 있나, 없으면 B의 금기 짝에 A가 있나
-    taboo = get_taboo_partners(seq_a).get(seq_b) or get_taboo_partners(seq_b).get(seq_a)
+    # 네 가지 조회를 한꺼번에 출발시킨다
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        taboo_a = pool.submit(get_taboo_partners, seq_a)
+        taboo_b = pool.submit(get_taboo_partners, seq_b)
+        ingr_a = pool.submit(get_ingredients, seq_a)
+        ingr_b = pool.submit(get_ingredients, seq_b)
+
+    # 1) 병용금기
+    taboo = taboo_a.result().get(seq_b) or taboo_b.result().get(seq_a)
     if taboo:
         reasons.append(f"함께 먹으면 안 되는 약입니다 (병용금기: {taboo})")
 
     # 2) 같은 성분 겹침
-    ingr_a = {i["MTRAL_CODE"]: i["MTRAL_NM"] for i in get_ingredients(seq_a)}
-    ingr_b = {i["MTRAL_CODE"]: i["MTRAL_NM"] for i in get_ingredients(seq_b)}
+    ingr_a = {i["MTRAL_CODE"]: i["MTRAL_NM"] for i in ingr_a.result()}
+    ingr_b = {i["MTRAL_CODE"]: i["MTRAL_NM"] for i in ingr_b.result()}
     for code in ingr_a.keys() & ingr_b.keys():
         reasons.append(f"{ingr_a[code]} 성분이 두 약에 모두 들어 있어 너무 많이 먹게 될 수 있습니다")
 
