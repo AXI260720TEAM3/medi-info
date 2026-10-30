@@ -1,3 +1,4 @@
+from functools import lru_cache
 import httpx
 
 from ..config import DATA_GO_KR_KEY
@@ -12,7 +13,7 @@ def _call(url, params):
     res.raise_for_status()
     return res.json()["body"].get("items") or []
 
-
+@lru_cache(maxsize=1000)
 def get_ingredients(item_seq):
     drug = get_by_seq(item_seq)
     if drug is None:
@@ -20,6 +21,7 @@ def get_ingredients(item_seq):
     items = _call(INGR_URL, {"Prduct": drug["item_name"]})
     return [item for item in items if item["ITEM_SEQ"] == item_seq]
 
+@lru_cache(maxsize=1000)
 def get_taboo_partners(item_seq):
     items = _call(DUR_URL, {"itemSeq": item_seq, "numOfRows": 500})
     return {item["MIXTURE_ITEM_SEQ"]: item["PROHBT_CONTENT"].strip() for item in items}
