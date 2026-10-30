@@ -1,111 +1,263 @@
+/* ===== 1. 색 · 모양 이름표 (약바로 디자인 시스템) =====
+   색은 의미로만 써요. 빨강·주황은 경고에만, 초록은 쓰지 않아요("문제없음"으로 읽히지 않게).
+   화면에서는 색 코드를 직접 쓰지 말고 var(--이름)으로 꺼내 써요. */
 :root {
-  --text: #6b6375;
-  --text-h: #08060d;
-  --bg: #fff;
-  --border: #e5e4e7;
-  --code-bg: #f4f3ec;
-  --accent: #aa3bff;
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --accent-border: rgba(170, 59, 255, 0.5);
-  --social-bg: rgba(244, 243, 236, 0.5);
-  --shadow:
-    rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
+  /* 기본 */
+  --primary: #2563EB;        /* 버튼, 강조 */
+  --primary-hover: #1D4ED8;
+  --primary-text: #1D4ED8;   /* 링크, 보조 버튼 글자 */
+  --primary-bg: #EFF6FF;     /* 선택된 메뉴 바탕 */
 
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
+  /* 경고 4종 (AlertBox에서 사용) */
+  --danger: #B91C1C;         /* 위험 차단 바탕 · 금기 테두리 */
+  --danger-text: #991B1B;
+  --danger-bg: #FEF2F2;
+  --caution: #F59E0B;        /* 주의 테두리 */
+  --caution-text: #92400E;
+  --caution-bg: #FFFBEB;
+  --info-text: #075985;      /* 안내 */
+  --info-border: #BAE6FD;
+  --info-bg: #F0F9FF;
 
-  font: 18px/145% var(--sans);
-  letter-spacing: 0.18px;
-  color-scheme: light dark;
-  color: var(--text);
-  background: var(--bg);
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  /* 글자 · 바탕 · 선 */
+  --text: #111827;
+  --text-muted: #4B5563;     /* 보조 글자, 정보 없음 */
+  --bg: #F6F8FB;             /* 페이지 바탕 */
+  --surface: #FFFFFF;        /* 카드 바탕 */
+  --surface-muted: #F3F4F6;  /* 회색 칩, 오류 상자 */
+  --border: #E5E7EB;
+  --border-strong: #D1D5DB;  /* 입력칸 테두리 */
 
-  @media (max-width: 1024px) {
-    font-size: 16px;
-  }
+  /* 모양 */
+  --radius: 10px;            /* 버튼, 입력칸 */
+  --radius-card: 14px;       /* 카드 */
+  --font: 'Noto Sans KR', system-ui, sans-serif;
+
+  color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --social-bg: rgba(47, 48, 58, 0.5);
-    --shadow:
-      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
-  }
-
-  #social .button-icon {
-    filter: invert(1) brightness(2);
-  }
+/* ===== 2. 기본 ===== */
+* {
+  box-sizing: border-box;
 }
 
 body {
   margin: 0;
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--text);
+  background: var(--bg);
 }
 
 #root {
-  width: 1126px;
-  max-width: 100%;
-  margin: 0 auto;
-  text-align: center;
-  border-inline: 1px solid var(--border);
-  min-height: 100svh;
+  min-height: 100vh;
   display: flex;
   flex-direction: column;
-  box-sizing: border-box;
 }
 
-h1,
-h2 {
-  font-family: var(--heading);
-  font-weight: 500;
-  color: var(--text-h);
+a {
+  color: var(--primary-text);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
 }
 
-h1 {
-  font-size: 56px;
-  letter-spacing: -1.68px;
-  margin: 32px 0;
-  @media (max-width: 1024px) {
-    font-size: 36px;
-    margin: 20px 0;
-  }
-}
-h2 {
-  font-size: 24px;
-  line-height: 118%;
-  letter-spacing: -0.24px;
-  margin: 0 0 8px;
-  @media (max-width: 1024px) {
-    font-size: 20px;
-  }
-}
-p {
+/* ===== 3. 글자 ===== */
+.title {          /* 화면 제목 */
   margin: 0;
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+}
+.card-title {     /* 카드 제목 */
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+.muted {          /* 출처, 갱신일 (14px보다 작게 쓰지 않음) */
+  font-size: 14px;
+  color: var(--text-muted);
 }
 
-code,
-.counter {
-  font-family: var(--mono);
+/* ===== 4. 버튼 ===== */
+.btn {
   display: inline-flex;
-  border-radius: 4px;
-  color: var(--text-h);
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 44px;          /* 손가락으로 누르기 좋은 최소 높이 */
+  padding: 0 18px;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: none;
+}
+.btn:hover {
+  text-decoration: none;
+}
+.btn-primary {
+  background: var(--primary);
+  color: #FFFFFF;
+}
+.btn-primary:hover {
+  background: var(--primary-hover);
+}
+.btn-secondary {
+  background: var(--surface);
+  border-color: var(--primary);
+  color: var(--primary-text);
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
-code {
+/* ===== 5. 카드 · 입력칸 ===== */
+.card {
+  padding: 18px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+}
+
+.input {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font: inherit;
+  color: var(--text);
+}
+.input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+/* ===== 6. 화면 폭 ===== */
+.page {
+  flex: 1;
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 32px 24px 48px;
+}
+
+/* ===== 7. Layout: 상단 메뉴 · 아래 안내 ===== */
+.header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.header-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 10px 24px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 28px;
+}
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  color: var(--text);
+}
+.logo:hover {
+  text-decoration: none;
+}
+.logo-mark {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: var(--primary);
+  color: #FFFFFF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.nav {
+  flex: 1 1 auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.nav a {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: var(--radius);
   font-size: 15px;
-  line-height: 135%;
-  padding: 4px 8px;
-  background: var(--code-bg);
+  color: #374151;
+}
+.nav a:hover {
+  background: var(--surface-muted);
+  text-decoration: none;
+}
+.nav a.active {            /* NavLink가 지금 화면 메뉴에 붙여 주는 클래스 */
+  background: var(--primary-bg);
+  color: var(--primary-text);
+  font-weight: 700;
+}
+
+.footer {
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+}
+.footer-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px 24px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 24px;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+/* ===== 8. 불러오는 중 · 오류 문구 ===== */
+.loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 24px 0;
+  color: var(--text-muted);
+}
+.spinner {
+  width: 20px;
+  height: 20px;
+  border: 3px solid var(--border);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.error-box {               /* 서버 오류 등 (약의 위험 경고는 AlertBox) */
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border-radius: var(--radius-card);
+  background: var(--surface-muted);
+  border: 1px solid var(--border-strong);
+}
+.error-box p {
+  margin: 0;
 }
