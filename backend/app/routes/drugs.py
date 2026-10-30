@@ -2,6 +2,7 @@ import httpx
 from fastapi import APIRouter, HTTPException
 from ..services.drug_api import search_by_name, get_by_seq, search_by_efcy
 from ..services.query_ai import parse_query
+from ..services.synonym import find_symptom
 
 router = APIRouter(
     prefix="/api",
@@ -26,6 +27,7 @@ def drug_smart(text: str, page: int = 1):
         parsed = parse_query(text)
     except httpx.HTTPError:
         raise HTTPException(status_code=503, detail=AI_DOWN)
+    parsed["symptom"] = find_symptom(text) or parsed["symptom"]
 
     try:
         if parsed["drug_name"]:
@@ -48,4 +50,5 @@ def drug_detail(item_seq: str):
     if drug is None:
         raise HTTPException(status_code=404, detail="그 약을 찾을 수 없어요.")
     return drug
+
 
