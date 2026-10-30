@@ -39,3 +39,6 @@ def get_by_seq(item_seq):
         if item["item_seq"] == item_seq:
             return item
     return None
+
+def search_by_efcy(symptom, page=1, size=10):
+    return _call({"efcyQesitm": symptom, "pageNo":page, "numOfRows": size})
