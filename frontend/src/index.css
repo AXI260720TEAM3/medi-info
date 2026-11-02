@@ -96,6 +96,8 @@ a:hover {
   font-weight: 700;
   cursor: pointer;
   text-decoration: none;
+  white-space: nowrap;       /* 좁은 곳에서도 글자가 두 줄로 꺾이지 않게 */
+  flex-shrink: 0;
 }
 .btn:hover {
   text-decoration: none;

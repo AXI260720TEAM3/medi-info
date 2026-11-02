@@ -3,6 +3,7 @@ import Layout from './components/Layout'
 import ErrorMessage from './components/ErrorMessage'
 import DrugSearch from './pages/DrugSearch'
 import DrugDetail from './pages/DrugDetail'
+import StyleGuide from './pages/StyleGuide'
 
 function App(){
   return (
@@ -12,6 +13,7 @@ function App(){
         <Route path="/" element={<Navigate to="/drugs" replace />} />
         <Route path="/drugs" element={<DrugSearch />} />
         <Route path="/drugs/:itemSeq" element={<DrugDetail />} />
+        <Route path="/style-guide" element={<StyleGuide />} />
         <Route path="*" element={<ErrorMessage message="없는 페이지예요. 주소를 확인해 주세요." />} />
       </Route>
     </Routes>
