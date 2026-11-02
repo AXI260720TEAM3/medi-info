@@ -4,6 +4,8 @@ import ErrorMessage from './components/ErrorMessage'
 import DrugSearch from './pages/DrugSearch'
 import DrugDetail from './pages/DrugDetail'
 import StyleGuide from './pages/StyleGuide'
+import Login from './pages/Login'
+import Signup from './pages/Signup'
 
 function App(){
   return (
@@ -14,6 +16,8 @@ function App(){
         <Route path="/drugs" element={<DrugSearch />} />
         <Route path="/drugs/:itemSeq" element={<DrugDetail />} />
         <Route path="/style-guide" element={<StyleGuide />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/signup" element={<Signup/>} />
         <Route path="*" element={<ErrorMessage message="없는 페이지예요. 주소를 확인해 주세요." />} />
       </Route>
     </Routes>

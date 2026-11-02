@@ -1,4 +1,5 @@
-import { Link, NavLink, Outlet } from 'react-router'
+import { useEffect, useState } from 'react'
+import { Link, NavLink, Outlet, useNavigate } from 'react-router'
 
 // 상단 메뉴: 새 화면을 만들면 여기에 한 줄 추가해요
 const MENU = [
@@ -8,6 +9,23 @@ const MENU = [
 ]
 
 function Layout() {
+  const navigate = useNavigate()
+  const [user, setUser] = useState(null) // null이면 로그인 안 한 상태
+
+  // 화면이 처음 열릴 때 한 번: 지금 로그인한 사람이 누구인지 물어봐요
+  useEffect(() =>{
+    fetch('/api/auth/me')
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => setUser(data))
+      .catch(() => setUser(null))
+  }, [])
+
+  const handleLogout = async () => {
+    await fetch('/api/auth/logout', { method: 'POST' })
+    setUser(null)
+    navigate('/drugs')
+  }
+
   return (<>
     <header className="header">
       <div className="header-inner">
@@ -23,11 +41,19 @@ function Layout() {
         <nav className="nav" aria-label="주요 메뉴">
           {MENU.map(m => <NavLink key={m.to} to={m.to}>{m.label}</NavLink>)}
         </nav>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {user ? (<>
+            <span>{user.login_id}님</span>
+            <button type="button" className="btn btn-secondary" onClick={handleLogout}>로그아웃</button>
+          </>) :(
+            <Link to="/login" className="btn btn-secondary">로그인</Link>
+          )}
+        </div>
       </div>
     </header>
 
     <main className="page">
-      <Outlet />
+      <Outlet context={{ user, setUser }} />
     </main>
 
     <footer className="footer">
