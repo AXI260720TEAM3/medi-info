@@ -53,3 +53,24 @@ with psycopg.connect(conninfo) as conn:
 
     count = conn.execute("SELECT count(*) FROM caution_keyword").fetchone()[0]
     print("넣은 뒤 caution_keyword 행 수:", count)
+
+    with open("data/dict/notice_text.csv", encoding="utf-8-sig") as f:
+        notice_rows = list(csv.DictReader(f))
+
+    for row in notice_rows:
+        conn.execute(
+            """
+            INSERT INTO notice_text (code, text)
+            VALUES (%s, %s)
+            ON CONFLICT (code) DO UPDATE
+            SET text = EXCLUDED.text, updated_at = now()
+            WHERE notice_text.text IS DISTINCT FROM EXCLUDED.text
+            """,
+            (row["code"], row["text"]),
+        )
+
+    notice_codes = [row["code"] for row in notice_rows]
+    conn.execute("DELETE FROM notice_text WHERE code <> ALL(%s)", (notice_codes,))
+
+    count = conn.execute("SELECT count(*) FROM notice_text").fetchone()[0]
+    print("넣은 뒤 notice_text 행 수:", count)
