@@ -13,7 +13,7 @@ from ..database import SessionLocal
 password_hash = PasswordHash((BcryptHasher(),))
 
 # 약관을 고치면 이 값을 올려요 → 동의 기록에 어느 약관에 동의했는지 남아요
-TERMS_VERSION = "2026-10"
+TERMS_VERSION = "2026-11"
 
 # 입장 팔찌 유효 시간
 TOKEN_HOURS = 12

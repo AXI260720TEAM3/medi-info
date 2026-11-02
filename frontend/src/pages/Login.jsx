@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { Link, useNavigate, useOutletContext } from 'react-router'
+import { Link, Navigate, useLocation, useNavigate, useOutletContext } from 'react-router'
 
 function Login() {
     const navigate = useNavigate()
-    const {setUser} = useOutletContext()
+    const { user, setUser} = useOutletContext()
+    const location = useLocation()
     const [loginId, setLoginId] = useState('')
     const [password, setPassword] = useState('')
     const [error, setError] = useState('')
@@ -29,6 +30,8 @@ function Login() {
         }
     }
 
+    if (user) return <Navigate to="/drugs" replace />
+
     return (
         <form className="card" style={{ maxWidth: 400, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 12}}
          onSubmit={handleSubmit}>
@@ -41,6 +44,7 @@ function Login() {
                 비밀번호
                 <input className="input" type="password" value={password} onChange={e => setPassword(e.target.value) } required />
             </label>
+            {location.state?.message && <p style={{ margin: 0, color: 'var(--info-text)' }}>{location.state.message}</p>}
             {error && <p style={{ margin: 0, color: 'var(--danger-text)' }}>{error}</p>}
             <button type="submit" className="btn btn-primary" disabled={loading}>로그인</button>
             <p className="muted" style={{margin: 0}}>처음이신가요? <Link to="/signup">회원가입</Link></p>
