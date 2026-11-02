@@ -33,3 +33,23 @@ with psycopg.connect(conninfo) as conn:
     
     count = conn.execute("SELECT count(*) FROM symptom_keyword").fetchone()[0]
     print("넣은 뒤 symptom_keyword 행 수:", count)
+
+    with open("data/dict/caution_keyword.csv", encoding="utf-8-sig") as f:
+        caution_rows = list(csv.DictReader(f))
+
+    for row in caution_rows:
+        conn.execute(
+            """
+            INSERT INTO caution_keyword (keyword, target)
+            VALUES (%s, %s)
+            ON CONFLICT (keyword) DO UPDATE
+            SET target = EXCLUDED.target
+            """,
+            (row["keyword"], row["target"]),
+        )
+
+    caution_keywords = [row["keyword"] for row in caution_rows]
+    conn.execute("DELETE FROM caution_keyword WHERE keyword <> ALL(%s)", (caution_keywords,))
+
+    count = conn.execute("SELECT count(*) FROM caution_keyword").fetchone()[0]
+    print("넣은 뒤 caution_keyword 행 수:", count)
