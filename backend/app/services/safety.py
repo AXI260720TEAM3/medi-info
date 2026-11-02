@@ -88,3 +88,15 @@ def check_safety(question: str) -> dict:
         }
 
     return {"level": "pass", "matched": [], "message": None}
+
+
+def get_notice(code: str) -> str:
+    with SessionLocal() as db:
+        return db.execute(
+            text("SELECT text FROM notice_text WHERE code = :code"),
+            {"code": code},
+        ).scalar_one()
+
+
+def add_disclaimer(answer: str) -> str:
+    return f"{answer}\n\n{get_notice('DISCLAIMER')}"
