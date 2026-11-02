@@ -57,6 +57,9 @@ SET default_table_access_method = heap;
 CREATE TABLE public.app_user (
     user_id bigint NOT NULL,
     login_id character varying(50) NOT NULL,
+    display_name character varying(30) NOT NULL,
+    email character varying(255),
+    email_verified_at timestamp with time zone,
     password_hash character varying(255) NOT NULL,
     role character varying(10) DEFAULT 'user'::character varying NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
@@ -84,6 +87,27 @@ COMMENT ON COLUMN public.app_user.user_id IS '사용자ID';
 --
 
 COMMENT ON COLUMN public.app_user.login_id IS '로그인ID';
+
+
+--
+-- Name: COLUMN app_user.display_name; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.app_user.display_name IS '표시이름 (별명 가능)';
+
+
+--
+-- Name: COLUMN app_user.email; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.app_user.email IS '이메일 (아이디·비밀번호 찾기용)';
+
+
+--
+-- Name: COLUMN app_user.email_verified_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.app_user.email_verified_at IS '이메일인증일시';
 
 
 --
@@ -1280,6 +1304,14 @@ ALTER TABLE ONLY public.user_profile
 
 ALTER TABLE ONLY public.app_user
     ADD CONSTRAINT uq_app_user_login UNIQUE (login_id);
+
+
+--
+-- Name: app_user uq_app_user_email; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.app_user
+    ADD CONSTRAINT uq_app_user_email UNIQUE (email);
 
 
 --

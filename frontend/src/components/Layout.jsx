@@ -43,7 +43,7 @@ function Layout() {
         </nav>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           {user ? (<>
-            <span>{user.login_id}님</span>
+            <span>{user.display_name}님</span>
             <button type="button" className="btn btn-secondary" onClick={handleLogout}>로그아웃</button>
           </>) :(
             <Link to="/login" className="btn btn-secondary">로그인</Link>

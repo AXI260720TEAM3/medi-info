@@ -8,6 +8,7 @@ function Signup(){
     const navigate = useNavigate()
     const [loginId, setLoginId] = useState('')
     const [password, setPassword] = useState('')
+    const [displayName, setDisplayName] = useState('')
     const [agreePrivacy, setAgreePrivacy] = useState(false)
     const [agreeHealth, setAgreeHealth] = useState(false)
     const [error, setError] = useState('')
@@ -23,6 +24,7 @@ function Signup(){
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     login_id: loginId,
+                    display_name: displayName,
                     password: password,
                     agree_privacy: agreePrivacy,
                     agree_health : agreeHealth,
@@ -43,6 +45,10 @@ function Signup(){
             <label style={LABEL}>
                 아이디 (4자 이상)
                 <input className="input" value={loginId} onChange={e => setLoginId(e.target.value)} minLength={4} maxLength={50} required />
+            </label>
+            <label style={LABEL}>
+                이름 (별명 가능)
+                <input className="input" value={displayName} onChange={e => setDisplayName(e.target.value)} maxLength={30} required />
             </label>
             <label style={LABEL}>
                 비밀번호 (8자 이상)
