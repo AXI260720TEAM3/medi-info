@@ -13,7 +13,7 @@ from ..database import SessionLocal
 password_hash = PasswordHash((BcryptHasher(),))
 
 # 약관을 고치면 이 값을 올려요 → 동의 기록에 어느 약관에 동의했는지 남아요
-TERMS_VERSION = "2026-11"
+TERMS_VERSION = "2026-11-2"
 
 # 입장 팔찌 유효 시간
 TOKEN_HOURS = 12
@@ -96,4 +96,11 @@ def email_taken(email: str) -> bool:
         return db.execute(
             text("SELECT 1 FROM app_user WHERE email = :email"),
             {"email": email},
+        ).first() is not None
+
+def login_id_taken(login_id: str) -> bool:
+    with SessionLocal() as db:
+        return db.execute(
+            text("SELECT 1 FROM app_user WHERE login_id = :login_id"),
+            {"login_id": login_id},
         ).first() is not None

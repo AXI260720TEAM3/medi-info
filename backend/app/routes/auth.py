@@ -1,10 +1,10 @@
 import smtplib
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from ..deps import get_current_user
 from pydantic import BaseModel, Field, StringConstraints
-from ..services.auth import create_user, login_user, create_token, get_user, email_taken ,TOKEN_HOURS
+from ..services.auth import create_user, login_user, create_token, get_user, email_taken, login_id_taken, TOKEN_HOURS
 from ..services.email_code import create_code, check_code, use_code, CODE_MINUTES
 from ..services.mail import send_mail
 
@@ -27,6 +27,10 @@ class SignupRequest(BaseModel):
     email_code: Code
     agree_privacy: bool
     agree_health: bool = False
+
+@router.get("/check-id")
+def check_id(login_id: str = Query(min_length=4, max_length=50)):
+    return {"available": not login_id_taken(login_id)}
 
 @router.post("/signup", status_code=201)
 def signup(data: SignupRequest):
