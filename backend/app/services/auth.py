@@ -13,7 +13,7 @@ from ..database import SessionLocal
 password_hash = PasswordHash((BcryptHasher(),))
 
 # 약관을 고치면 이 값을 올려요 → 동의 기록에 어느 약관에 동의했는지 남아요
-TERMS_VERSION = "2026-11"
+TERMS_VERSION = "2026-11-2"
 
 # 입장 팔찌 유효 시간
 TOKEN_HOURS = 12
@@ -25,7 +25,7 @@ def verify_password(password: str, hashed: str) -> bool:
     return password_hash.verify(password, hashed)
 
 
-def create_user(login_id: str, password: str, display_name: str, agree_health: bool):
+def create_user(login_id: str, password: str, display_name: str, agree_health: bool, email: str):
     consents = ["개인정보"]
     if agree_health:
         consents.append("건강정보")
@@ -34,11 +34,11 @@ def create_user(login_id: str, password: str, display_name: str, agree_health: b
         try:
             user_id = db.execute(
                 text("""
-                    INSERT INTO app_user (login_id, display_name, password_hash)
-                    VALUES (:login_id, :display_name, :password_hash)
+                    INSERT INTO app_user (login_id, display_name, password_hash, email, email_verified_at)
+                    VALUES (:login_id, :display_name, :password_hash, :email, now())
                     RETURNING user_id
                 """),
-                {"login_id": login_id, "display_name": display_name, "password_hash": hash_password(password)},
+                {"login_id": login_id, "display_name": display_name, "password_hash": hash_password(password), "email": email},
             ).scalar_one()
 
             for consent_type in consents:
@@ -90,3 +90,17 @@ def get_user(user_id: int):
             {"user_id": user_id},
         ).mappings().first()
     return dict(row) if row else None
+
+def email_taken(email: str) -> bool:
+    with SessionLocal() as db:
+        return db.execute(
+            text("SELECT 1 FROM app_user WHERE email = :email"),
+            {"email": email},
+        ).first() is not None
+
+def login_id_taken(login_id: str) -> bool:
+    with SessionLocal() as db:
+        return db.execute(
+            text("SELECT 1 FROM app_user WHERE login_id = :login_id"),
+            {"login_id": login_id},
+        ).first() is not None
