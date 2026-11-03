@@ -14,7 +14,8 @@ const SECTIONS = [
 function DrugDetail() {
     const {itemSeq} = useParams()
     const navigate = useNavigate()
-    const [answer,setAnswer] = useState({ seq: '', drug: null, error: ''}) 
+    const [answer,setAnswer] = useState({ seq: '', drug: null, error: ''})
+    const [message, setMessage] = useState('')
     const loading = answer.seq !== itemSeq
 
     useEffect(() => {
@@ -31,10 +32,23 @@ function DrugDetail() {
     if (answer.error) return <p>{answer.error} <Link to="/drugs">검색으로</Link></p>
 
     const drug = answer.drug
+    const handleAdd = async () => {
+        const res = await fetch('/api/my-meds', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ item_seq: itemSeq, item_name: drug.item_name }),
+        })
+        if (res.status === 201) setMessage('내 약에 등록했어요.')
+        else if (res.status === 409) setMessage('이미 등록한 약이에요.')
+        else if (res.status === 401) setMessage('로그인하면 등록할 수 있어요.')
+        else setMessage('등록하지 못했어요. 잠시 후 다시 시도해 주세요.')
+    }
     return (<>
         <button onClick={() => navigate(-1)}>← 목록으로</button>
         <h2>{drug.item_name}</h2>
         <p>{drug.entp_name}</p>
+        <button type="button" className="btn btn-primary" onClick={handleAdd}>내 약에 등록</button>
+        {message && <p className="muted">{message}</p>}
         {drug.item_image && <img src={drug.item_image} alt={drug.item_name} width="200" /> }
 
         {SECTIONS.map(([key, title]) => drug[key] && (
