@@ -22,7 +22,7 @@ def find_drug(question):
         return {"status":"none"}
 
     for i , variant in enumerate(name_variants(name)):
-        total, items = search_by_name(variant, size=10)
+        total, items = search_by_name(variant, size=20)
         if total == 0:
             continue
 
