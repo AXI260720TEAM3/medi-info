@@ -1,0 +1,23 @@
+question,expected_status,expected_name,memo
+베아제정 효능,found,베아제정,정확한 이름
+게보린정 복용법,found,게보린정,괄호 앞 이름이 같음
+판콜에이내복액 보관은?,found,판콜에이내복액,
+까스활명수 보관,found,까스활명수큐액,검색 결과 1개
+이지엔6프로 효능,found,이지엔6프로,
+타이레놀 부작용은?,ambiguous,타이레놀,후보 여러 개
+게보린 먹어도 돼요?,ambiguous,게보린,
+판콜에이 보관은 어떻게 해요?,ambiguous,판콜에이내복액,AI가 이름을 줄여도 후보에 있어야 함
+부루펜 부작용,ambiguous,부루펜,
+탁센 부작용,ambiguous,탁센,
+겔포스 복용법,ambiguous,겔포스,
+판피린 효능,ambiguous,판피린,
+훼스탈 플러스 부작용,ambiguous,훼스탈플러스정,띄어쓰기
+타이레놀정500밀리그램 부작용은?,ambiguous,타이레놀정500밀리그람,API 표기는 밀리그람
+타이레놀 500 먹어도 돼?,ambiguous,타이레놀정500밀리그람,앞쪽 한글로 다시 찾기
+타이래놀 부작용,ambiguous,타이레놀,오타
+게보링 효능,ambiguous,게보린,오타
+베아재 먹는 법,ambiguous,베아제,오타
+머리가 아파요,none,,증상만 있음
+감기약 추천해줘,none,,제품이 아님
+그거 보관은?,none,,앞 대화가 필요함
+없는약이름쿼츠 효능,none,,없는 약
