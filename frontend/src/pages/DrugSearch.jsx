@@ -41,6 +41,9 @@ function DrugSearch() {
             ? <p>🤖 '{found}'(으)로 찾았어요</p>
             : <p>🤖 약 이름이나 증상을 알아듣지 못했어요. 다르게 말해 볼까요?</p>)}
         {!loading && answer.q !== '' && !answer.error && <p>{answer.total}건</p>}
+        {!loading && found && !answer.error && answer.total === 0 && (
+            <p>식약처 e약은요에 등록된 일반의약품만 검색됩니다. 약사와 상담해 보세요.</p>
+        )}
 
         <ul>
             {!loading && answer.items.map(drug =>(

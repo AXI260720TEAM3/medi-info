@@ -27,6 +27,14 @@ CAUTION_MESSAGES = {
     "노인": "어르신은 약의 영향을 더 크게 받을 수 있으니 약사와 먼저 상담하세요.",
     "복용중": "지금 드시는 약이 있다면 함께 먹어도 되는지 약사와 먼저 확인하세요.",
 }
+# AI 답변에 나오면 안 되는 표현 (띄어쓰기를 지운 답변과 비교)
+BANNED_PHRASES = [
+    "약을드세요", "드시면됩니다", "추천합니다", "가장좋습니다",  # 약 골라 주기
+    "인것같습니다", "로보입니다",                              # 진단
+    "부작용이없", "먹어도괜찮", "안전합니다",                   # 안전 단정
+    "완치", "확실히낫",                                       # 효과 단정
+    "갈필요없",                                               # 진료 말리기
+]
 
 
 def _load_danger_keywords():
@@ -88,6 +96,15 @@ def check_safety(question: str) -> dict:
         }
 
     return {"level": "pass", "matched": [], "message": None}
+
+
+def find_banned(answer: str) -> list:
+    text = answer.replace(" ", "")
+    found = []
+    for phrase in BANNED_PHRASES:
+        if _matches(phrase, text):
+            found.append(phrase)
+    return found
 
 
 def get_notice(code: str) -> str:
