@@ -7,6 +7,7 @@ import StyleGuide from './pages/StyleGuide'
 import Login from './pages/Login'
 import Signup from './pages/Signup'
 import MyMeds from './pages/MyMeds'
+import Together from './pages/Together'
 
 function App(){
   return (
@@ -20,6 +21,7 @@ function App(){
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup/>} />
         <Route path="/my-meds" element={<MyMeds />} />
+        <Route path="/together" element={<Together />} />
         <Route path="*" element={<ErrorMessage message="없는 페이지예요. 주소를 확인해 주세요." />} />
       </Route>
     </Routes>
