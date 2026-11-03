@@ -20,3 +20,13 @@ def find_symptom(question: str):
     if not hits:
         return None
     return min(hits)[1]
+
+def fix_drug_typo(name: str):
+    with SessionLocal() as db:
+        rows = db.execute(
+            text("SELECT word, standard FROM synonym WHERE syn_type = '오타_제품명'")
+        ).mappings().all()
+
+    for row in rows:
+        name = name.replace(row["word"], row["standard"])
+    return name

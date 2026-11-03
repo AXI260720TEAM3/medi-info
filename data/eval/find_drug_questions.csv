@@ -17,6 +17,7 @@ question,expected_status,expected_name,memo
 타이래놀 부작용,ambiguous,타이레놀,오타
 게보링 효능,ambiguous,게보린,오타
 베아재 먹는 법,ambiguous,베아제,오타
+부르펜 부작용,ambiguous,부루펜,오타
 머리가 아파요,none,,증상만 있음
 감기약 추천해줘,none,,제품이 아님
 그거 보관은?,none,,앞 대화가 필요함

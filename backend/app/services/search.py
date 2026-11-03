@@ -2,6 +2,7 @@ import re
 
 from .drug_api import search_by_name
 from .query_ai import parse_query
+from .synonym import fix_drug_typo
 
 
 def base_name(item_name):
@@ -19,9 +20,14 @@ def name_variants(name):
 def find_drug(question):
     name = parse_query(question)["drug_name"]
     if not name:
-        return {"status":"none"}
+        return {"status": "none"}
 
-    for i , variant in enumerate(name_variants(name)):
+    variants = name_variants(name)
+    fixed = fix_drug_typo(name)
+    if fixed != name:
+        variants = list(dict.fromkeys(variants + name_variants(fixed)))
+
+    for i, variant in enumerate(variants):
         total, items = search_by_name(variant, size=20)
         if total == 0:
             continue
