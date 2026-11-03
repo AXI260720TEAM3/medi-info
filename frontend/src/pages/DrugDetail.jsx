@@ -40,7 +40,7 @@ function DrugDetail() {
         {SECTIONS.map(([key, title]) => drug[key] && (
             <section key={key}>
                 <h3>{title}</h3>
-                <p style={{ whiteSpace: 'pre-line' }}>{drug[key]}</p>
+                <p style={{ whiteSpace: 'pre-line' }}>{drug[key] || '정보 없음'}</p>
             </section>
         ))}
     
