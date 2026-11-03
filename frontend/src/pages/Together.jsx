@@ -13,6 +13,10 @@ const RESULTS = {
     title: '함께 먹을 때 주의가 필요해요.',
     style: { background: 'var(--caution-bg)', border: '1.5px solid var(--caution)', color: 'var(--caution-text)' },
   },
+  unknown: {
+    title: '이 조합은 확인을 끝내지 못했어요.',
+    style: { background: 'var(--caution-bg)', border: '1.5px solid var(--caution)', color: 'var(--caution-text)' },
+  },
   pass: {
     title: '확인된 병용금기나 성분 겹침은 없어요.',
     style: { background: 'var(--info-bg)', border: '1px solid var(--info-border)', color: 'var(--info-text)' },
@@ -72,7 +76,7 @@ function Together() {
   }
 
   const canCheck = seqA !== '' && seqB !== '' && seqA !== seqB && !checking
-  const shown = result && RESULTS[result.level]
+  const shown = result && (RESULTS[result.level] ?? RESULTS.unknown)
 
   return (<>
     <h1 className="title">함께 먹기 확인</h1>

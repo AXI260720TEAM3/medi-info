@@ -51,6 +51,10 @@ def check_together(seq_a, seq_b):
         level = "block"
     elif reasons:
         level = "warn"
+    elif not ingr_a or not ingr_b:
+        # 성분을 못 찾으면 겹치는지 알 수 없으므로 pass라고 답하지 않는다
+        level = "unknown"
+        reasons.append("약의 성분 정보를 찾지 못해 성분이 겹치는지 확인하지 못했습니다")
     else:
         level = "pass"
     return {"level": level, "reasons": reasons}
