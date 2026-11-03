@@ -859,7 +859,7 @@ CREATE TABLE public.synonym (
     word character varying(100) NOT NULL,
     standard character varying(100) NOT NULL,
     syn_type character varying(20) NOT NULL,
-    CONSTRAINT ck_synonym_type CHECK (((syn_type)::text = ANY ((ARRAY['제품명_성분'::character varying, '일상_공식'::character varying])::text[])))
+    CONSTRAINT ck_synonym_type CHECK (((syn_type)::text = ANY ((ARRAY['제품명_성분'::character varying, '일상_공식'::character varying, '오타_제품명'::character varying])::text[])))
 );
 
 

@@ -6,8 +6,7 @@ import DrugDetail from './pages/DrugDetail'
 import StyleGuide from './pages/StyleGuide'
 import Login from './pages/Login'
 import Signup from './pages/Signup'
-import AdminChatLogs from './pages/AdminChatLogs'
-
+import MyMeds from './pages/MyMeds'
 
 function App(){
   return (
@@ -20,8 +19,8 @@ function App(){
         <Route path="/style-guide" element={<StyleGuide />} />
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup/>} />
+        <Route path="/my-meds" element={<MyMeds />} />
         <Route path="*" element={<ErrorMessage message="없는 페이지예요. 주소를 확인해 주세요." />} />
-        <Route path="/admin/chat-logs" element={<AdminChatLogs />} />
       </Route>
     </Routes>
   )

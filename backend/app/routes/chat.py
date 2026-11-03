@@ -403,15 +403,23 @@ def ask(data: AskRequest):
         save_chat_log(question, result, level)
         return result
 
-    if level in ("block", "redirect"):
+    # 위험 안내는 안내 문구 DB 조회(add_disclaimer) 실패와 무관하게 나가야 하므로 make_reply를 바로 씁니다.
+    if level == "block":
+        return make_reply(
+            safety.get("message") or "안전 검사 결과를 확인해 주세요.",
+            source="안전 사전",
+            risk="위험 상황",
+        )
+
+    if level == "redirect":
         return reply(
             safety.get("message") or "안전 검사 결과를 확인해 주세요.",
             source="안전 사전",
-            risk="위험 상황" if level == "block" else "일반 질문",
+            risk="일반 질문",
         )
 
     if has_emergency_signal(question):
-        return reply(
+        return make_reply(
             "응급 상황이 의심됩니다. 즉시 119에 연락하거나 응급 진료를 받으세요.",
             risk="위험 상황",
         )
@@ -420,7 +428,7 @@ def ask(data: AskRequest):
     analysis = analyze_question(question, history_text, data.item_seq, data.drug_name)
     risk, category = analysis["risk"], analysis["category"]
     if risk == "위험 상황":
-        return reply(
+        return make_reply(
             "과다복용 또는 응급 상황이 의심되면 증상을 기다리지 말고 즉시 119나 응급의료기관에 연락하세요. "
             "복용한 약과 양·시각을 의료진에게 알려주세요.",
             risk="위험 상황",
