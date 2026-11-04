@@ -120,3 +120,18 @@ def reset_password(email: str, password: str) -> bool:
         )
         db.commit()
     return result.rowcount == 1
+
+def delete_user(user_id: int, password: str) -> bool:
+    with SessionLocal() as db:
+        row = db.execute(
+            text("SELECT password_hash, email FROM app_user WHERE user_id = :user_id"),
+            {"user_id": user_id},
+        ).first()
+        if row is None or not verify_password(password, row.password_hash):
+            return False
+
+        # 내 약·프로필·동의 기록은 DB가 같이 지우고(CASCADE), AI 질문 기록은 user_id만 비운다(SET NULL)
+        db.execute(text("DELETE FROM email_code WHERE email = :email"), {"email": row.email})
+        db.execute(text("DELETE FROM app_user WHERE user_id = :user_id"), {"user_id": user_id})
+        db.commit()
+    return True
