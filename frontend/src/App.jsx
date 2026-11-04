@@ -10,6 +10,7 @@ import MyMeds from './pages/MyMeds'
 import Together from './pages/Together'
 import FindAccount from './pages/FindAccount'
 import Account from './pages/Account'
+import Chat from './pages/Chat'
 
 function App(){
   return (
@@ -24,6 +25,7 @@ function App(){
         <Route path="/signup" element={<Signup/>} />
         <Route path="/account" element={<Account />} />
         <Route path="/find-account" element={<FindAccount />} />
+        <Route path="/chat" element={<Chat />} />
         <Route path="/my-meds" element={<MyMeds />} />
         <Route path="/together" element={<Together />} />
         <Route path="*" element={<ErrorMessage message="없는 페이지예요. 주소를 확인해 주세요." />} />
