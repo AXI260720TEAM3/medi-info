@@ -8,7 +8,9 @@ sys.path.insert(0, "backend") # ② backend 폴더에서 app을 찾게
 
 from app.services.safety import check_safety  # ③ 이제 불러와도 안전
 
-with open("data/eval/safety_questions.csv", encoding="utf-8-sig") as f:
+PATH = sys.argv[1] if len(sys.argv) > 1 else "data/eval/safety_questions.csv"
+
+with open(PATH, encoding="utf-8-sig") as f:
     rows = list(csv.DictReader(f))
 
 block_total = 0     # 막아야 할 질문 수
