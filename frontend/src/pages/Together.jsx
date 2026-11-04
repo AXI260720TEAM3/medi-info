@@ -1,26 +1,15 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
+import AlertBox from '../components/AlertBox'
 import ErrorMessage from '../components/ErrorMessage'
 import Loading from '../components/Loading'
 
-// 판정별 제목과 색 (색 조합은 StyleGuide의 금기 · 주의 · 안내)
+// 판정별 제목과 경고 종류
 const RESULTS = {
-  block: {
-    title: '함께 먹으면 안 되는 조합이에요.',
-    style: { background: 'var(--danger-bg)', border: '1.5px solid var(--danger)', color: 'var(--danger-text)' },
-  },
-  warn: {
-    title: '함께 먹을 때 주의가 필요해요.',
-    style: { background: 'var(--caution-bg)', border: '1.5px solid var(--caution)', color: 'var(--caution-text)' },
-  },
-  unknown: {
-    title: '이 조합은 확인을 끝내지 못했어요.',
-    style: { background: 'var(--caution-bg)', border: '1.5px solid var(--caution)', color: 'var(--caution-text)' },
-  },
-  pass: {
-    title: '확인된 병용금기나 성분 겹침은 없어요.',
-    style: { background: 'var(--info-bg)', border: '1px solid var(--info-border)', color: 'var(--info-text)' },
-  },
+  block: { type: 'taboo', title: '함께 먹으면 안 되는 조합이에요.' },
+  warn: { type: 'caution', title: '함께 먹을 때 주의가 필요해요.' },
+  unknown: { type: 'caution', title: '이 조합은 확인을 끝내지 못했어요.' },
+  pass: { type: 'info', title: '확인된 병용금기나 성분 겹침은 없어요.' },
 }
 
 function Together() {
@@ -110,11 +99,10 @@ function Together() {
     {checkError && <ErrorMessage message={checkError} />}
 
     {shown && (
-      <div role="status" style={{ ...shown.style, padding: '12px 14px', borderRadius: 12 }}>
-        <p style={{ fontWeight: 700 }}>{shown.title}</p>
+      <AlertBox type={shown.type} title={shown.title}>
         {result.reasons.map(reason => <p key={reason}>{reason}</p>)}
         <p>진단이나 처방이 아니에요. 복용 전에 약사와 상의하세요.</p>
-      </div>
+      </AlertBox>
     )}
   </>)
 }

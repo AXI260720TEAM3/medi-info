@@ -263,3 +263,33 @@ a:hover {
 .error-box p {
   margin: 0;
 }
+
+.alert-box {               /* 약의 위험 경고 4종 (components/AlertBox) */
+  padding: 12px 14px;
+  border-radius: 12px;
+}
+.alert-box p {
+  margin: 0;
+}
+.alert-title {
+  font-weight: 700;
+}
+.alert-danger {
+  background: var(--danger);
+  color: #FFFFFF;
+}
+.alert-taboo {
+  background: var(--danger-bg);
+  border: 1.5px solid var(--danger);
+  color: var(--danger-text);
+}
+.alert-caution {
+  background: var(--caution-bg);
+  border: 1.5px solid var(--caution);
+  color: var(--caution-text);
+}
+.alert-info {
+  background: var(--info-bg);
+  border: 1px solid var(--info-border);
+  color: var(--info-text);
+}
