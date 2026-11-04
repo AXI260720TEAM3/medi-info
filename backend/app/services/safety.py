@@ -1,6 +1,17 @@
+import re
+
 from sqlalchemy import text
 
 from ..database import SessionLocal
+
+# 약을 많이 먹었다는 표현 (띄어쓰기를 지운 질문과 비교). 개월은 나이라서 뺀다
+OVERDOSE_PATTERN = re.compile(
+    r"(\d+|다섯|여섯|일곱|여덟|아홉|열)(알|정|캡슐|개(?!월)|포|병|봉)"
+    r"[을를이나씩도]{0,3}(?:한꺼번에|한번에|다)?(?:먹었|먹어버|먹은것|삼켰|복용했)"
+)
+OVERDOSE_MIN = 5
+PILL_UNITS = ("알", "정", "캡슐")  # 이 단위는 약이 분명하고, 개·병 같은 단위는 약 단어가 있을 때만 본다
+DRUG_WORDS = ("약", "진통제", "해열제", "소화제", "수면제", "영양제", "지사제", "항생제")
 
 # action마다 손님에게 보여 줄 안내
 ACTION_MESSAGES = {
@@ -70,6 +81,16 @@ def _check_cautions(text: str):
     return matched, " ".join(messages)
 
 
+def _is_overdose(text: str) -> bool:
+    for match in OVERDOSE_PATTERN.finditer(text):
+        count, unit = match.groups()
+        if count.isdigit() and int(count) < OVERDOSE_MIN:
+            continue
+        if unit in PILL_UNITS or any(word in text for word in DRUG_WORDS):
+            return True
+    return False
+
+
 def check_safety(question: str) -> dict:
     text = question.replace(" ", "")
 
@@ -80,6 +101,13 @@ def check_safety(question: str) -> dict:
                 "matched": [row["keyword"]],
                 "message": ACTION_MESSAGES[row["action"]],
             }
+
+    if _is_overdose(text):
+        return {
+            "level": "block",
+            "matched": ["과다복용 숫자"],
+            "message": ACTION_MESSAGES["119"],
+        }
 
     caution_matched, caution_message = _check_cautions(text)
 
