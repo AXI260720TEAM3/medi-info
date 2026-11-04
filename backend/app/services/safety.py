@@ -15,8 +15,11 @@ RECOMMEND_KEYWORDS = [
     "약추천", "약좀추천", "제추천", "연고추천",
     "무슨약을", "무슨약먹", "어떤약을", "어떤약이+좋", "어떤게좋",
     "에뭐먹으면", "에뭐먹어야", "약뭐먹", "뭐가좋아",
-    "잘듣는약", "골라줘",
+    "잘듣는약", "골라줘", "좋은약+알려", "좋은약+있",
 ]
+# 약 이름을 몰라도 추천 요청으로 보는 넓은 표현. 약이 아닌 것을 추천해 달라는 질문은 뺀다
+RECOMMEND_BROAD_KEYWORDS = ["추천좀", "추천해주세요", "추천해줘"]
+NOT_DRUG_WORDS = ["약국", "병원", "음식"]
 RECOMMEND_MESSAGE = "특정 약을 골라 드릴 수는 없습니다. 증상에 쓰는 약의 정보를 보여 드릴 수 있으니, 어떤 약이 맞는지는 약사와 상담해 보세요."
 
 # 주의 대상마다 손님에게 보여 줄 안내
@@ -80,7 +83,11 @@ def check_safety(question: str) -> dict:
 
     caution_matched, caution_message = _check_cautions(text)
 
-    for keyword in RECOMMEND_KEYWORDS:
+    keywords = list(RECOMMEND_KEYWORDS)
+    if not any(word in text for word in NOT_DRUG_WORDS):
+        keywords += RECOMMEND_BROAD_KEYWORDS
+
+    for keyword in keywords:
         if _matches(keyword, text):
             return {
                 "level": "redirect",
