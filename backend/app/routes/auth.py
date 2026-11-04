@@ -4,7 +4,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from ..deps import get_current_user
 from pydantic import BaseModel, Field, StringConstraints
-from ..services.auth import create_user, login_user, create_token, get_user, email_taken, login_id_taken, find_login_id, reset_password ,TOKEN_HOURS
+from ..services.auth import create_user, login_user, create_token, get_user, email_taken, login_id_taken, find_login_id, reset_password, delete_user ,TOKEN_HOURS
 from ..services.email_code import create_code, check_code, use_code, CODE_MINUTES
 from ..services.mail import send_mail
 
@@ -79,6 +79,16 @@ def logout(response: Response):
 @router.get("/me")
 def me(user: dict = Depends(get_current_user)):
     return user
+
+class DeleteAccountRequest(BaseModel):
+    password: str
+
+@router.delete("/me")
+def delete_me(data: DeleteAccountRequest, response: Response, user: dict = Depends(get_current_user)):
+    if not delete_user(user["user_id"], data.password):
+        raise HTTPException(status_code=400, detail="비밀번호가 맞지 않아요.")
+    response.delete_cookie(COOKIE_NAME)
+    return {"ok": True}
 
 class EmailCodeRequest(BaseModel):
     email: Email

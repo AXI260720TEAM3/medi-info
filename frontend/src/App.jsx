@@ -9,6 +9,7 @@ import Signup from './pages/Signup'
 import MyMeds from './pages/MyMeds'
 import Together from './pages/Together'
 import FindAccount from './pages/FindAccount'
+import Account from './pages/Account'
 
 function App(){
   return (
@@ -21,6 +22,7 @@ function App(){
         <Route path="/style-guide" element={<StyleGuide />} />
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup/>} />
+        <Route path="/account" element={<Account />} />
         <Route path="/find-account" element={<FindAccount />} />
         <Route path="/my-meds" element={<MyMeds />} />
         <Route path="/together" element={<Together />} />
