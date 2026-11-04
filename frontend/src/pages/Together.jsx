@@ -26,6 +26,7 @@ const RESULTS = {
 function Together() {
   const [meds, setMeds] = useState(null)
   const [needLogin, setNeedLogin] = useState(false)
+  const [needConsent, setNeedConsent] = useState(false)
   const [error, setError] = useState('')
   const [seqA, setSeqA] = useState('')
   const [seqB, setSeqB] = useState('')
@@ -38,6 +39,10 @@ function Together() {
       .then(async res => {
         if (res.status === 401) {
           setNeedLogin(true)
+          return
+        }
+        if (res.status === 403) {
+          setNeedConsent(true)
           return
         }
         if (!res.ok) throw new Error()
@@ -68,6 +73,9 @@ function Together() {
 
   if (needLogin) {
     return <p>함께 먹기 확인은 로그인하면 쓸 수 있어요. <Link to="/login">로그인하기</Link></p>
+  }
+  if (needConsent) {
+    return <p>함께 먹기 확인은 건강정보 수집에 동의하면 쓸 수 있어요. <Link to="/account">동의하러 가기</Link></p>
   }
   if (error) return <ErrorMessage message={error} />
   if (meds === null) return <Loading />

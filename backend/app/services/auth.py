@@ -86,7 +86,12 @@ def read_token(token: str):
 def get_user(user_id: int):
     with SessionLocal() as db:
         row = db.execute(
-            text("SELECT user_id, login_id, display_name, role FROM app_user WHERE user_id = :user_id"),
+            text("""
+                SELECT user_id, login_id, display_name, role,
+                EXISTS (SELECT 1 FROM user_consent c 
+                        WHERE c.user_id = app_user.user_id AND c.consent_type = '건강정보') AS agree_health
+                FROM app_user WHERE user_id = :user_id
+            """),
             {"user_id": user_id},
         ).mappings().first()
     return dict(row) if row else None
@@ -135,3 +140,25 @@ def delete_user(user_id: int, password: str) -> bool:
         db.execute(text("DELETE FROM app_user WHERE user_id = :user_id"), {"user_id": user_id})
         db.commit()
     return True
+
+def agree_health(user_id: int):
+    with SessionLocal() as db:
+        db.execute(
+            text("""
+            INSERT INTO user_consent (user_id, consent_type, terms_version)
+            VALUES (:user_id, '건강정보', :terms_version)
+            ON CONFLICT DO NOTHING
+            """),
+            {"user_id": user_id, "terms_version": TERMS_VERSION},
+        )
+        db.commit()
+
+def withdraw_health(user_id: int):
+    """동의를 철회하면 건강정보(내 약, 프로필)도 같이 지운다."""
+    with SessionLocal() as db:
+        params = {"user_id": user_id}
+        db.execute(text("DELETE FROM user_med WHERE user_id = :user_id"), params)
+        db.execute(text("DELETE FROM user_profile WHERE user_id = :user_id"), params)
+        db.execute(text("DELETE FROM user_consent WHERE user_id = :user_id AND consent_type = '건강정보'"), params)
+        db.commit()
+
