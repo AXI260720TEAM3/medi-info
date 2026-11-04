@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router'
 
 const API_URL = import.meta.env.VITE_API_URL || '/api/ask'
 const HISTORY_LIMIT = 6
@@ -82,6 +83,8 @@ export default function Chat() {
           source: result.source || '',
           risk: result.risk || '',
           category: result.category || '',
+          items: result.items || [],
+          itemsNote: result.items_note || '',
         },
       ])
       setDrug((prev) => ({
@@ -136,6 +139,23 @@ export default function Chat() {
             )}
 
           <div>{message.content}</div>
+
+          {message.itemsNote && (
+            <div style={{ marginTop: 8 }}>
+              <p className="muted" style={{ marginTop: 0, marginBottom: 4 }}>{message.itemsNote}</p>
+              {message.items.length > 0 && (
+                <ul style={{ marginTop: 0, marginBottom: 4 }}>
+                  {message.items.map(item => (
+                    <li key={item.item_seq}>
+                      <Link to={`/drugs/${item.item_seq}`}>{item.item_name}</Link>
+                      <span className="muted"> · {item.entp_name}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <Link to="/drugs">약 찾기로 가기</Link>
+            </div>
+          )}
 
           {message.role === 'assistant' &&
             message.source &&

@@ -10,8 +10,10 @@ from ..deps import get_current_user
 from pydantic import BaseModel, Field
 
 from ..config import OLLAMA_URL
-from ..services.drug_api import get_by_seq, search_by_name
+from ..services.drug_api import get_by_seq, search_by_efcy, search_by_name
+from ..services.query_ai import parse_query
 from ..services.safety import check_safety, add_disclaimer
+from ..services.synonym import find_symptom
 
 router = APIRouter(prefix="/api", tags=["Chat"])
 MODEL = "qwen2.5:7b-instruct-q4_K_M"
@@ -72,6 +74,11 @@ DOSE_INTENT = re.compile(
     r"어떻게\s*(?:먹|복용)|복용\s*횟수|복용\s*간격",
     re.IGNORECASE,
 )
+
+
+REDIRECT_DRUG_LIMIT = 5
+REDIRECT_LIST_NOTE = "효능에 이 증상이 적힌 약의 일부예요. 순서는 추천이 아니에요."
+REDIRECT_SEARCH_NOTE = "약 찾기에서 증상이나 약 이름으로 약 정보를 찾아볼 수 있어요."
 
 
 class ChatTurn(BaseModel):
@@ -373,6 +380,22 @@ def _answer_from_official_info(
     )
 
 
+def redirect_drugs(question: str) -> list[dict]:
+    """추천 요청의 증상에 쓰는 약 목록. 조회에 실패해도 안내 문구는 나가야 하므로 빈 목록을 돌려줍니다."""
+    try:
+        # 약 찾기(/api/drugs/smart)와 같은 순서: 사전에 없는 증상은 AI로 찾습니다.
+        symptom = find_symptom(question) or parse_query(question)["symptom"]
+        if not symptom:
+            return []
+        _, items = search_by_efcy(symptom, size=REDIRECT_DRUG_LIMIT)
+    except Exception:
+        return []
+    return [
+        {"item_seq": item["item_seq"], "item_name": item["item_name"], "entp_name": item["entp_name"]}
+        for item in items
+    ]
+
+
 @router.post("/ask")
 def ask(data: AskRequest):
     question = data.question.strip()
@@ -412,11 +435,15 @@ def ask(data: AskRequest):
         )
 
     if level == "redirect":
-        return reply(
+        result = reply(
             safety.get("message") or "안전 검사 결과를 확인해 주세요.",
             source="안전 사전",
             risk="일반 질문",
         )
+        # matched는 [추천 표현, 주의 대상...]입니다. 임신·어린이 등 주의 대상에게는 약 목록을 보여 주지 않습니다.
+        result["items"] = [] if safety["matched"][1:] else redirect_drugs(question)
+        result["items_note"] = REDIRECT_LIST_NOTE if result["items"] else REDIRECT_SEARCH_NOTE
+        return result
 
     if has_emergency_signal(question):
         return make_reply(
