@@ -1,12 +1,16 @@
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from ..deps import get_current_user, require_health_consent
+from ..services.dur_api import check_interaction
 from ..services.my_meds import add_med, delete_med, list_meds
 
 router = APIRouter(
     prefix="/api/my-meds",
     tags=["MyMeds"]
 )
+
+API_DOWN = "약 정보 서버가 응답하지 않아요. 잠시 후 다시 시도해 주세요."
 
 
 class MedRequest(BaseModel):
@@ -17,6 +21,20 @@ class MedRequest(BaseModel):
 @router.get("")
 def my_meds(user: dict = Depends(require_health_consent)):
     return list_meds(user["user_id"])
+
+
+@router.get("/check")
+def check_my_meds(user: dict = Depends(require_health_consent)):
+    meds = list_meds(user["user_id"])
+    names = {med["item_seq"]: med["item_name"] for med in meds}
+    try:
+        results = check_interaction(list(names))
+    except httpx.HTTPError:
+        raise HTTPException(status_code=503, detail=API_DOWN)
+    for result in results:
+        result["item_name_a"] = names[result["item_seq_a"]]
+        result["item_name_b"] = names[result["item_seq_b"]]
+    return {"level": results[0]["level"] if results else None, "results": results}
 
 
 @router.post("", status_code=201)

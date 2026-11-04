@@ -1,4 +1,5 @@
 from functools import lru_cache
+from itertools import combinations
 import httpx
 from concurrent.futures import ThreadPoolExecutor
 from ..config import DATA_GO_KR_KEY
@@ -6,6 +7,7 @@ from .drug_api import get_by_seq
 
 INGR_URL = "https://apis.data.go.kr/1471000/DrugPrdtPrmsnInfoService08/getDrugPrdtMcpnDtlInq08"
 DUR_URL = "https://apis.data.go.kr/1471000/DURPrdlstInfoService03/getUsjntTabooInfoList03"
+LEVEL_ORDER = ("block", "warn", "unknown", "pass")  # 위험한 판정부터
 
 def _call(url, params):
     params = {"serviceKey": DATA_GO_KR_KEY, "type": "json", "numOfRows": 100, **params}
@@ -24,7 +26,8 @@ def get_ingredients(item_seq):
 @lru_cache(maxsize=1000)
 def get_taboo_partners(item_seq):
     items = _call(DUR_URL, {"itemSeq": item_seq, "numOfRows": 500})
-    return {item["MIXTURE_ITEM_SEQ"]: item["PROHBT_CONTENT"].strip() for item in items}
+    # 사유가 비어 있어도 금기는 금기이므로 빈 값으로 두지 않는다
+    return {item["MIXTURE_ITEM_SEQ"]: (item["PROHBT_CONTENT"] or "사유 정보 없음").strip() for item in items}
 
 def check_together(seq_a, seq_b):
     reasons = []
@@ -58,3 +61,13 @@ def check_together(seq_a, seq_b):
     else:
         level = "pass"
     return {"level": level, "reasons": reasons}
+
+def check_interaction(item_seqs):
+    """약 여러 개를 두 개씩 모두 비교한다. 위험한 판정이 앞에 오는 목록을 돌려준다."""
+    seqs = list(dict.fromkeys(item_seqs))  # 같은 약은 한 번만
+    results = [
+        {"item_seq_a": a, "item_seq_b": b, **check_together(a, b)}
+        for a, b in combinations(seqs, 2)
+    ]
+    results.sort(key=lambda result: LEVEL_ORDER.index(result["level"]))
+    return results
