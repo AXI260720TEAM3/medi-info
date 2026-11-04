@@ -41,6 +41,7 @@ function DrugDetail() {
         if (res.status === 201) setMessage('내 약에 등록했어요.')
         else if (res.status === 409) setMessage('이미 등록한 약이에요.')
         else if (res.status === 401) setMessage('로그인하면 등록할 수 있어요.')
+        else if (res.status === 403) setMessage('건강정보 수집에 동의하면 등록할 수 있어요. 내 정보 화면에서 동의할 수 있어요.')
         else setMessage('등록하지 못했어요. 잠시 후 다시 시도해 주세요.')
     }
     return (<>
