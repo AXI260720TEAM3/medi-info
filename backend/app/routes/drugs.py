@@ -1,6 +1,8 @@
+from functools import lru_cache
+
 import httpx
-from fastapi import APIRouter, HTTPException
-from ..services.drug_api import search_by_name, get_by_seq, search_by_efcy
+from fastapi import APIRouter, HTTPException, Query
+from ..services.drug_api import search_by_name_ranked, get_by_seq, search_by_efcy
 from ..services.query_ai import parse_query
 from ..services.synonym import find_symptom
 
@@ -11,35 +13,41 @@ router = APIRouter(
 
 API_DOWN = "약 정보 서버가 응답하지 않아요. 잠시 후 다시 시도해 주세요."
 AI_DOWN = "AI 서버가 응답하지 않아요. 잠시 후 다시 시도해 주세요."
+PAGE_SIZE = 10
 
+
+# 같은 질문은 AI에게 한 번만 묻는다 (쪽을 넘겨도 같은 검색어를 쓰게)
+@lru_cache(maxsize=256)
+def cached_parse(text):
+    return parse_query(text)
 
 @router.get("/drugs")
-def drug_list(q: str, page: int = 1): 
+def drug_list(q: str, page: int= Query(1, ge=1)): 
     try:
-        total, items = search_by_name(q, page=page)
+        total, items = search_by_name_ranked(q, page=page, size=PAGE_SIZE)
     except httpx.HTTPError:
         raise HTTPException(status_code=503, detail=API_DOWN)
-    return {"total":total, "page": page, "items": items}
+    return {"total": total, "page": page, "size": PAGE_SIZE, "items": items}
 
 @router.get("/drugs/smart")
-def drug_smart(text: str, page: int = 1):
+def drug_smart(text: str, page: int = Query(1, ge=1)):
     try:
-        parsed = parse_query(text)
+        parsed = dict(cached_parse(text))
     except httpx.HTTPError:
         raise HTTPException(status_code=503, detail=AI_DOWN)
     parsed["symptom"] = find_symptom(text) or parsed["symptom"]
 
     try:
         if parsed["drug_name"]:
-            total, items = search_by_name(parsed["drug_name"], page=page)
+            total, items = search_by_name_ranked(parsed["drug_name"], page=page, size=PAGE_SIZE)
         elif parsed["symptom"]:
-            total, items = search_by_efcy(parsed["symptom"], page=page)
+            total, items = search_by_efcy(parsed["symptom"], page=page, size=PAGE_SIZE)
         else:
             total, items = 0, []
     except httpx.HTTPError:
         raise HTTPException(status_code=503, detail=API_DOWN)
 
-    return {"parsed": parsed, "total": total, "page": page, "items": items}
+    return {"parsed": parsed, "total": total, "page": page, "size": PAGE_SIZE ,"items": items}
 
 @router.get("/drugs/{item_seq}")
 def drug_detail(item_seq: str):
