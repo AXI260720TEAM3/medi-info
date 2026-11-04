@@ -25,6 +25,7 @@ function App(){
         <Route path="/signup" element={<Signup/>} />
         <Route path="/account" element={<Account />} />
         <Route path="/find-account" element={<FindAccount />} />
+        <Route path="/chat" element={<Chat />} />
         <Route path="/my-meds" element={<MyMeds />} />
         <Route path="/together" element={<Together />} />
         <Route path="/chat" element={<Chat />} />

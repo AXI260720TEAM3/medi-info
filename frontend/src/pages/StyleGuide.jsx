@@ -1,6 +1,8 @@
 import Loading from '../components/Loading'
 import ErrorMessage from '../components/ErrorMessage'
 import AlertBox from '../components/AlertBox'
+import Badge from '../components/Badge'
+import SourceChip from '../components/SourceChip'
 
 // 공통 UI 견본: localhost:5173/style-guide
 // 화면을 만들 때 여기서 모양을 보고, 아래 코드를 복사해서 쓰면 돼요
@@ -87,6 +89,22 @@ function StyleGuide() {
             <p>{a.text}</p>
           </AlertBox>
         ))}
+      </section>
+
+      <section style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <h2 className="card-title">7. 배지 (Badge)</h2>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          <Badge type="taboo">임부금기</Badge>
+          <Badge type="caution">서방정 · 쪼개지 않기</Badge>
+          <Badge type="notice">성분 · 아세트아미노펜</Badge>
+          <Badge type="none">정보 없음</Badge>
+        </div>
+      </section>
+      
+      <section style={{ display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'flex-start' }}>
+        <h2 className="card-title">8. 출처 칩 (SourceChip)</h2>
+        <SourceChip>식약처 e약은요 · 갱신 2026-06-29</SourceChip>
+        <SourceChip to="/drugs">근거1 · 타이레놀정500밀리그람 · 사용법 (누르면 이동)</SourceChip>
       </section>
     </div>
   )
