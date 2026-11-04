@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from ..deps import get_current_user
+from ..deps import get_current_user, require_health_consent
 from ..services.my_meds import add_med, delete_med, list_meds
 
 router = APIRouter(
@@ -15,12 +15,12 @@ class MedRequest(BaseModel):
 
 
 @router.get("")
-def my_meds(user: dict = Depends(get_current_user)):
+def my_meds(user: dict = Depends(require_health_consent)):
     return list_meds(user["user_id"])
 
 
 @router.post("", status_code=201)
-def register_med(data: MedRequest, user: dict = Depends(get_current_user)):
+def register_med(data: MedRequest, user: dict = Depends(require_health_consent)):
     med = add_med(user["user_id"], data.item_seq, data.item_name)
     if med is None:
         raise HTTPException(status_code=409, detail="이미 등록한 약이에요.")

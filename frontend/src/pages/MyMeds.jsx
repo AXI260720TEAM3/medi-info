@@ -6,6 +6,7 @@ import Loading from '../components/Loading'
 function MyMeds() {
   const [meds, setMeds] = useState(null)
   const [needLogin, setNeedLogin] = useState(false)
+  const [needConsent, setNeedConsent] = useState(false)
   const [error, setError] = useState('')
   const [deleteError, setDeleteError] = useState('')
 
@@ -14,6 +15,10 @@ function MyMeds() {
       .then(async res => {
         if (res.status === 401) {
           setNeedLogin(true)
+          return
+        }
+        if (res.status === 403) {
+          setNeedConsent(true)
           return
         }
         if (!res.ok) throw new Error()
@@ -35,6 +40,9 @@ function MyMeds() {
 
   if (needLogin) {
     return <p>내 약은 로그인하면 볼 수 있어요. <Link to="/login">로그인하기</Link></p>
+  }
+  if (needConsent){
+    return <p>내 약은 건강정보 수집에 동의하면 쓸 수 있어요. <Link to="/account">동의하러 가기</Link></p>
   }
   if (error) return <ErrorMessage message={error} />
   if (meds === null) return <Loading />
