@@ -10,6 +10,7 @@ function Signup(){
     const {user} = useOutletContext()
     const [loginId, setLoginId] = useState('')
     const [idChecked, setIdChecked] = useState(false)
+    const [idError, setIdError] = useState('')
     const [password, setPassword] = useState('')
     const [passwordConfirm, setPasswordConfirm] = useState('')
     const [displayName, setDisplayName] = useState('')
@@ -18,6 +19,7 @@ function Signup(){
     const [codeSent, setCodeSent] = useState(false)
     const [cooldown, setCooldown] = useState(0)
     const [info, setInfo] = useState('')
+    const [emailError, setEmailError] = useState('')
     const [agreePrivacy, setAgreePrivacy] = useState(false)
     const [agreeHealth, setAgreeHealth] = useState(false)
     const [error, setError] = useState('')
@@ -31,8 +33,7 @@ function Signup(){
     }, [cooldown])
 
     const handleCheckId = async () => {
-        setError('')
-        setInfo('')
+        setIdError('')
         try {
             const res = await fetch(`/api/auth/check-id?login_id=${encodeURIComponent(loginId)}`)
             const data = await res.json().catch(() => ({}))
@@ -41,12 +42,12 @@ function Signup(){
             setIdChecked(true)
         } catch (err) {
             setIdChecked(false)
-            setError(err.message)
+            setIdError(err.message)
         }
     }
 
     const handleSendCode = async () => {
-        setError('')
+        setEmailError('')
         setInfo('')
         try {
             const res = await fetch('/api/auth/email-code', {
@@ -60,7 +61,7 @@ function Signup(){
             setCooldown(60)
             setInfo('인증번호를 보냈어요. 10분 안에 입력해 주세요.')
         } catch (err) {
-            setError(err.message)
+            setEmailError(err.message)
         }
     }
 
@@ -112,13 +113,14 @@ function Signup(){
                 아이디 (4자 이상)
                 <div style={ROW}>
                     <input className="input" style={{ flex: 1, minWidth: 0 }} value={loginId}
-                        onChange={e => { setLoginId(e.target.value); setIdChecked(false) }} minLength={4} maxLength={50} required />
+                        onChange={e => { setLoginId(e.target.value); setIdChecked(false); setIdError('') }} minLength={4} maxLength={50} required />
                     <button type="button" className="btn btn-secondary" onClick={handleCheckId} disabled={loginId.length < 4 || idChecked}>
                         {idChecked ? '확인됨' : '중복확인'}
                     </button>
                 </div>
             </label>
             {idChecked && <p style={{ margin: 0, color: 'var(--info-text)' }}>사용할 수 있는 아이디예요.</p>}
+            {idError && <p style={{ margin: 0, color: 'var(--danger-text)' }}>{idError}</p>}
             <label style={LABEL}>
                 이름 (별명 가능)
                 <input className="input" value={displayName} onChange={e => setDisplayName(e.target.value)} maxLength={30} required />
@@ -135,12 +137,13 @@ function Signup(){
                 이메일 (아이디·비밀번호 찾기에 써요)
                 <div style={ROW}>
                     <input className="input" style={{ flex: 1, minWidth: 0 }} type="email" value={email}
-                        onChange={e => { setEmail(e.target.value); setCodeSent(false); setInfo('') }} maxLength={255} required />
+                        onChange={e => { setEmail(e.target.value); setCodeSent(false); setInfo(''); setEmailError('') }} maxLength={255} required />
                     <button type="button" className="btn btn-secondary" onClick={handleSendCode} disabled={!email || cooldown > 0}>
                         {cooldown > 0 ? `${cooldown}초` : codeSent ? '다시 받기' : '인증번호 받기'}
                     </button>
                 </div>
             </label>
+            {emailError && <p style={{ margin: 0, color: 'var(--danger-text)' }}>{emailError}</p>}
             {codeSent && (
                 <label style={LABEL}>
                     인증번호 6자리

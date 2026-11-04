@@ -4,7 +4,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from ..deps import get_current_user
 from pydantic import BaseModel, Field, StringConstraints
-from ..services.auth import create_user, login_user, create_token, get_user, email_taken, login_id_taken, TOKEN_HOURS
+from ..services.auth import create_user, login_user, create_token, get_user, email_taken, login_id_taken, find_login_id, reset_password ,TOKEN_HOURS
 from ..services.email_code import create_code, check_code, use_code, CODE_MINUTES
 from ..services.mail import send_mail
 
@@ -89,13 +89,15 @@ def email_code(data: EmailCodeRequest):
     taken = email_taken(data.email)
     if data.purpose == "signup" and taken:
         raise HTTPException(status_code=409, detail="이미 가입된 이메일이에요.")
-    # 아이디 찾기·비밀번호 재설정은 가입 여부를 알려 주지 않는다
-    if data.purpose != "signup" and not taken:
-        return {"ok": True}
 
     code = create_code(data.email, data.purpose)
     if code is None:
         raise HTTPException(status_code=429, detail="1분 뒤에 다시 요청해 주세요.")
+    
+    # 아이디 찾기·비밀번호 재설정은 가입 여부를 알려 주지 않는다 (번호만 만들고 메일은 보내지 않음)
+    if data.purpose != "signup" and not taken:
+        return {"ok": True}
+
 
     try:
         send_mail(
@@ -105,4 +107,32 @@ def email_code(data: EmailCodeRequest):
         )
     except (smtplib.SMTPException, OSError):
         raise HTTPException(status_code=503, detail="메일을 보내지 못했어요. 잠시 후 다시 시도해 주세요.")
+    return {"ok": True}
+
+class FindIdRequest(BaseModel):
+    email: Email
+    email_code: Code
+
+@router.post("/find-id")
+def find_id(data: FindIdRequest):
+    code_id = check_code(data.email, "find_id", data.email_code)
+    login_id = find_login_id(data.email) if code_id else None
+    if login_id is None:
+        raise HTTPException(status_code=400, detail="인증번호가 맞지 않거나 시간이 지났어요.")
+
+    use_code(code_id)
+    return {"login_id": login_id}
+
+class ResetPasswordRequest(BaseModel):
+    email: Email
+    email_code: Code
+    password: str = Field(min_length=8, max_length=72)
+
+@router.post("/reset-password")
+def reset_pw(data: ResetPasswordRequest):
+    code_id = check_code(data.email, "reset_pw", data.email_code)
+    if code_id is None or not reset_password(data.email, data.password):
+        raise HTTPException(status_code=400, detail="인증번호가 맞지 않거나 시간이 지났어요.")
+
+    use_code(code_id)
     return {"ok": True}

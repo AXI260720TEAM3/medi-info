@@ -48,6 +48,7 @@ function Login() {
             {error && <p style={{ margin: 0, color: 'var(--danger-text)' }}>{error}</p>}
             <button type="submit" className="btn btn-primary" disabled={loading}>로그인</button>
             <p className="muted" style={{margin: 0}}>처음이신가요? <Link to="/signup">회원가입</Link></p>
+            <p className="muted" style={{margin: 0}}>아이디나 비밀번호를 잊었나요? <Link to="/find-account">계정 찾기</Link></p>
          </form>
     )
 }

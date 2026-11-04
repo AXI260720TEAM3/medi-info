@@ -8,6 +8,7 @@ import Login from './pages/Login'
 import Signup from './pages/Signup'
 import MyMeds from './pages/MyMeds'
 import Together from './pages/Together'
+import FindAccount from './pages/FindAccount'
 
 function App(){
   return (
@@ -20,6 +21,7 @@ function App(){
         <Route path="/style-guide" element={<StyleGuide />} />
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup/>} />
+        <Route path="/find-account" element={<FindAccount />} />
         <Route path="/my-meds" element={<MyMeds />} />
         <Route path="/together" element={<Together />} />
         <Route path="*" element={<ErrorMessage message="없는 페이지예요. 주소를 확인해 주세요." />} />

@@ -104,3 +104,19 @@ def login_id_taken(login_id: str) -> bool:
             text("SELECT 1 FROM app_user WHERE login_id = :login_id"),
             {"login_id": login_id},
         ).first() is not None
+
+def find_login_id(email: str):
+    with SessionLocal() as db:
+        return db.execute(
+            text("SELECT login_id FROM app_user WHERE email = :email"),
+            {"email":email},
+        ).scalar()
+
+def reset_password(email: str, password: str) -> bool:
+    with SessionLocal() as db:
+        result = db.execute(
+            text("UPDATE app_user SET password_hash = :password_hash WHERE email = :email"),
+            {"password_hash": hash_password(password), "email": email},
+        )
+        db.commit()
+    return result.rowcount == 1
