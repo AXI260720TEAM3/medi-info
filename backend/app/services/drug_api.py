@@ -42,3 +42,18 @@ def get_by_seq(item_seq):
 
 def search_by_efcy(symptom, page=1, size=10):
     return _call({"efcyQesitm": symptom, "pageNo":page, "numOfRows": size})
+
+
+def _rank(item_name, name):
+    """이름이 검색어로 시작하는 약 먼저, 그다음 이름이 짧은 약 먼저"""
+    base = item_name.split("(")[0].strip()
+    return (not base.startswith(name), len(base), item_name)
+
+def search_by_name_ranked(name, page=1, size=10):
+    """이름 검색 결과를 정렬해서 한 쪽만 돌려준다. 100건이 넘으면 e약은요 순서 그대로."""
+    total, items = search_by_name(name, page=1, size=100)
+    if total > 100:
+        return search_by_name(name, page=page, size=size)
+    items.sort(key=lambda d: _rank(d["item_name"], name))
+    start = (page - 1) * size
+    return total, items[start:start + size]
