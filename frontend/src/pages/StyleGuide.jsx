@@ -1,15 +1,16 @@
 import Loading from '../components/Loading'
 import ErrorMessage from '../components/ErrorMessage'
+import AlertBox from '../components/AlertBox'
 
 // 공통 UI 견본: localhost:5173/style-guide
 // 화면을 만들 때 여기서 모양을 보고, 아래 코드를 복사해서 쓰면 돼요
 
-// 경고 4종 색 조합 (AlertBox를 만들 때 참고)
+// 경고 4종
 const ALERTS = [
-  { name: '위험 차단', text: '위험 증상이에요. 바로 119에 연락하세요.', style: { background: 'var(--danger)', color: '#FFFFFF' } },
-  { name: '금기', text: '함께 먹으면 안 되는 조합이에요.', style: { background: 'var(--danger-bg)', border: '1.5px solid var(--danger)', color: 'var(--danger-text)' } },
-  { name: '주의', text: '같은 성분이 겹쳐요. 하루 최대량을 확인하세요.', style: { background: 'var(--caution-bg)', border: '1.5px solid var(--caution)', color: 'var(--caution-text)' } },
-  { name: '안내', text: '진단이나 처방이 아니에요.', style: { background: 'var(--info-bg)', border: '1px solid var(--info-border)', color: 'var(--info-text)' } },
+  { type: 'danger', name: '위험 차단', text: '위험 증상이에요. 바로 119에 연락하세요.' },
+  { type: 'taboo', name: '금기', text: '함께 먹으면 안 되는 조합이에요.' },
+  { type: 'caution', name: '주의', text: '같은 성분이 겹쳐요. 하루 최대량을 확인하세요.' },
+  { type: 'info', name: '안내', text: '진단이나 처방이 아니에요.' },
 ]
 
 const DRUGS = [
@@ -80,11 +81,11 @@ function StyleGuide() {
       </section>
 
       <section style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <h2 className="card-title">6. 경고 4종 색 (AlertBox 참고용)</h2>
+        <h2 className="card-title">6. 경고 4종 (AlertBox)</h2>
         {ALERTS.map(a => (
-          <div key={a.name} style={{ ...a.style, padding: '12px 14px', borderRadius: 12, fontWeight: 700 }}>
-            {a.name} · {a.text}
-          </div>
+          <AlertBox key={a.type} type={a.type} title={a.name}>
+            <p>{a.text}</p>
+          </AlertBox>
         ))}
       </section>
     </div>
