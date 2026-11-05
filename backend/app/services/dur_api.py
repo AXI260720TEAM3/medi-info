@@ -121,6 +121,18 @@ def _lookup_or_none(lookup, item_seq):
 def _lookup_all(item_seq):
     return [_lookup_or_none(lookup, item_seq) for lookup in (get_taboo_partners, get_ingredients, get_effect_groups)]
 
+def _ingredient_names(item_seq):
+    items = _lookup_or_none(get_ingredients, item_seq)
+    if items is None:
+        return None
+    return list(dict.fromkeys(_clean_name(item["MTRAL_NM"]) for item in items))
+
+def ingredient_names(item_seqs):
+    """약마다 성분 이름 목록을 돌려준다. 조회에 실패한 약은 None, 성분 정보가 없는 약은 빈 목록."""
+    seqs = list(dict.fromkeys(item_seqs))
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        return dict(zip(seqs, pool.map(_ingredient_names, seqs)))
+
 def check_interaction(item_seqs):
     """약 여러 개를 두 개씩 모두 비교한다. 위험한 판정이 앞에 오는 목록을 돌려준다.
 

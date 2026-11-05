@@ -2,7 +2,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from ..deps import get_current_user, require_health_consent
-from ..services.dur_api import check_interaction
+from ..services.dur_api import check_interaction, ingredient_names
 from ..services.my_meds import add_med, delete_med, list_meds
 
 router = APIRouter(
@@ -21,6 +21,12 @@ class MedRequest(BaseModel):
 @router.get("")
 def my_meds(user: dict = Depends(require_health_consent)):
     return list_meds(user["user_id"])
+
+
+@router.get("/ingredients")
+def my_med_ingredients(user: dict = Depends(require_health_consent)):
+    meds = list_meds(user["user_id"])
+    return ingredient_names([med["item_seq"] for med in meds])
 
 
 @router.get("/check")

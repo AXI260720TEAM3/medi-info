@@ -5,7 +5,12 @@ from ..database import SessionLocal
 def list_meds(user_id: int) -> list[dict]:
     with SessionLocal() as db:
         rows = db.execute(
-            text("SELECT med_id, item_seq, item_name FROM user_med WHERE user_id = :user_id"),
+            text("""
+                SELECT med_id, item_seq, item_name, added_by
+                FROM user_med
+                WHERE user_id = :user_id
+                ORDER BY med_id
+            """),
             {"user_id": user_id},
         ).mappings().all()
     return [dict(row) for row in rows]
