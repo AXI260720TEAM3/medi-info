@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from ..config import OLLAMA_URL
 from ..services.drug_api import get_by_seq, search_by_efcy, search_by_name
 from ..services.query_ai import parse_query
-from ..services.safety import check_safety, add_disclaimer
+from ..services.safety import check_safety, add_disclaimer, find_banned
 from ..services.synonym import find_symptom
 
 router = APIRouter(prefix="/api", tags=["Chat"])
@@ -75,7 +75,7 @@ DOSE_INTENT = re.compile(
     re.IGNORECASE,
 )
 
-
+HAN_PATTERN = re.compile(r"[\u4e00-\u9fff]")
 REDIRECT_DRUG_LIMIT = 5
 REDIRECT_LIST_NOTE = "효능에 이 증상이 적힌 약의 일부예요. 순서는 추천이 아니에요."
 REDIRECT_SEARCH_NOTE = "약 찾기에서 증상이나 약 이름으로 약 정보를 찾아볼 수 있어요."
@@ -328,12 +328,18 @@ def _answer_from_official_info(
 {question}
 """
     def rejection_reason(text: str) -> str | None:
-        # 숫자+단위는 '복용 지시'뿐 아니라 제품 함량도 잡으므로
-        # 정규식 검출 자체가 의료적 위험의 증명은 아닙니다.
+        if HAN_PATTERN.search(text):
+            return "한자가 포함된 표현"
+
+        if find_banned(text):
+            return "약 추천·진단·안전 단정 등 금지 표현"
+
         if UNSAFE_ASSURANCE.search(text) or (personal and PERSONAL_APPROVAL.search(text)):
             return "복용 안전성을 단정하는 표현"
+
         if DOSE_PATTERN.search(text) and (personal or not DOSE_INTENT.search(question)):
             return "질문과 무관하거나 개인별 검증이 필요한 숫자·용량 표현"
+
         return None
 
     answer = ollama_generate(prompt)
