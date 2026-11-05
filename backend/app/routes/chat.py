@@ -3,7 +3,7 @@ from ..database import SessionLocal
 import json
 import re
 from typing import Literal
-
+import logging
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from ..deps import get_current_user
@@ -431,13 +431,26 @@ def ask(data: AskRequest):
         result["answer"] = add_disclaimer(result["answer"])
         save_chat_log(question, result, level)
         return result
+    
+    def emergency_reply(answer: str, source: str | None = None):
+        result = make_reply(
+            answer,
+            source=source,
+            risk="위험 상황",
+        )
 
-    # 위험 안내는 안내 문구 DB 조회(add_disclaimer) 실패와 무관하게 나가야 하므로 make_reply를 바로 씁니다.
+        try:
+            save_chat_log(question, result, "block")
+        except Exception:
+            logging.exception("응급 질문 기록 저장 실패")
+
+        return result
+
+    # 응급 안내는 DB 기록에 실패해도 반환하며, add_disclaimer를 호출하지 않습니다.
     if level == "block":
-        return make_reply(
+        return emergency_reply(
             safety.get("message") or "안전 검사 결과를 확인해 주세요.",
             source="안전 사전",
-            risk="위험 상황",
         )
 
     if level == "redirect":
@@ -452,19 +465,17 @@ def ask(data: AskRequest):
         return result
 
     if has_emergency_signal(question):
-        return make_reply(
+        return emergency_reply(
             "응급 상황이 의심됩니다. 즉시 119에 연락하거나 응급 진료를 받으세요.",
-            risk="위험 상황",
         )
 
     history_text = recent_history(data.history)
     analysis = analyze_question(question, history_text, data.item_seq, data.drug_name)
     risk, category = analysis["risk"], analysis["category"]
     if risk == "위험 상황":
-        return make_reply(
+        return emergency_reply(
             "과다복용 또는 응급 상황이 의심되면 증상을 기다리지 말고 즉시 119나 응급의료기관에 연락하세요. "
             "복용한 약과 양·시각을 의료진에게 알려주세요.",
-            risk="위험 상황",
         )
 
     # 약 검색/선택 API는 기존 계약 유지; 선택된 약이 있어야 개인별 공식 정보 설명 가능.
