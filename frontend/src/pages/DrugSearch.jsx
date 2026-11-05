@@ -4,6 +4,7 @@ import Loading from '../components/Loading'
 import ErrorMessage from '../components/ErrorMessage'
 import AlertBox from '../components/AlertBox'
 import DrugImage from '../components/DrugImage'
+import Badge from '../components/Badge'
 
 const PAGE_SIZE = 10
 const PAGE_LINKS = 5   // 쪽 번호를 한 번에 몇 개 보여 줄지
@@ -112,7 +113,7 @@ function DrugSearch() {
 
       {showResult && found && answer.total === 0 && (
         <AlertBox type="info" title="검색 결과가 없어요">
-          <p>식약처 e약은요에 등록된 일반의약품만 검색됩니다. 약사와 상담해 보세요.</p>
+          <p>식약처에 허가된 약 중에 찾지 못했어요. 이름을 다시 확인하거나 약사와 상담해 보세요.</p>
         </AlertBox>
       )}
 
@@ -126,6 +127,10 @@ function DrugSearch() {
                   {drug.item_name}
                 </Link>
                 <span className="muted">{drug.entp_name}</span>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6}}>
+                  <Badge type="notice">{drug.etc_otc ?? '일반의약품'}</Badge>
+                  {drug.has_easy === false && <Badge type="none">쉬운 설명 없음</Badge>}
+                </div>
               </div>
               <Link to={`/drugs/${drug.item_seq}`} className="btn btn-secondary">상세 보기</Link>
             </article>
