@@ -18,6 +18,13 @@ FORM_WORDS = re.compile(r"\(.*?\)|장용과립|장용|과립|미분화|수화물
 NSAID_GROUP = "비스테로이드성 소염제"
 # DUR 효능군 자료에 없는 약도 있어서, 일반의약품에 흔한 소염진통제 성분은 직접 적는다
 NSAID_NAMES = {"이부프로펜", "덱시부프로펜", "나프록센", "아스피린", "케토프로펜", "록소프로펜나트륨"}
+ACETAMINOPHEN = "아세트아미노펜"
+# 숫자를 코드에 정해 두지 않고, e약은요 원문에 이 문구가 있을 때만 안내한다
+ACETAMINOPHEN_MAX = re.compile(r"일일\s*최대\s*용량\s*\(4,000\s*mg\)")
+ACETAMINOPHEN_NOTE = (
+    "식약처 e약은요 원문의 아세트아미노펜 일일 최대 용량은 4,000 mg입니다. 함께 먹으면 넘을 수 있습니다. "
+    "술을 자주 마시거나 간 질환이 있으면 약사와 먼저 상의하세요"
+)
 
 def _call(url, params):
     params = {"serviceKey": DATA_GO_KR_KEY, "type": "json", "numOfRows": 100, **params}
@@ -49,6 +56,14 @@ def get_effect_groups(item_seq):
     items = _call(EFFECT_URL, {"itemSeq": item_seq})
     return frozenset(item["SERS_NAME"] for item in items if item.get("SERS_NAME"))
 
+@lru_cache(maxsize=1000)
+def _states_max_dose(item_seq):
+    """성인용 약의 e약은요 경고문에 아세트아미노펜 최대 용량이 적혀 있는지 본다. 어린이 약의 양은 나이와 몸무게로 정한다."""
+    drug = get_by_seq(item_seq)
+    if drug is None or "어린이" in drug["item_name"]:
+        return False
+    return bool(ACETAMINOPHEN_MAX.search(drug.get("atpn_warn") or ""))
+
 def _clean_name(name):
     return FORM_WORDS.sub("", name).lower()
 
@@ -72,22 +87,31 @@ def _judge(seq_a, seq_b, a, b):
     taboo_a, ingr_a, effects_a = a
     taboo_b, ingr_b, effects_b = b
     reasons = []
+    basis = []  # 판정에 쓴 자료
     failed = None in (*a, *b)
 
     # 1) 병용금기
     taboo = (taboo_a or {}).get(seq_b) or (taboo_b or {}).get(seq_a)
     if taboo:
         reasons.append(f"함께 먹으면 안 되는 약입니다 (병용금기: {taboo})")
+        basis.append("식약처 DUR 병용금기")
 
     # 2) 같은 성분 겹침
     same = _same_ingredients(ingr_a or [], ingr_b or [])
     for name in same:
         reasons.append(f"{name} 성분이 두 약에 모두 들어 있어 너무 많이 먹게 될 수 있습니다")
+    if same:
+        basis.append("식약처 의약품 허가정보 성분 비교")
+    if ACETAMINOPHEN in same and all(_lookup_or_none(_states_max_dose, seq) for seq in (seq_a, seq_b)):
+        reasons.append(ACETAMINOPHEN_NOTE)
+        basis.append("식약처 e약은요 경고문")
 
     # 3) 같은 계열 겹침. 같은 성분이 있으면 이미 알렸으므로 다시 말하지 않는다
     same_group = [] if same else sorted(_groups(effects_a, ingr_a) & _groups(effects_b, ingr_b))
     for group in same_group:
         reasons.append(f"{group} 계열 약이 겹쳐 효과와 부작용이 함께 커질 수 있습니다")
+    if same_group:
+        basis.append("식약처 DUR 효능군 · 서비스 소염진통제 목록")
 
     if taboo:
         level = "block"
@@ -103,7 +127,7 @@ def _judge(seq_a, seq_b, a, b):
         reasons.append("약 정보 서버가 응답하지 않아 일부를 확인하지 못했습니다")
     elif level == "unknown":
         reasons.append("약의 성분 정보를 찾지 못해 성분이 겹치는지 확인하지 못했습니다")
-    return {"level": level, "reasons": reasons}
+    return {"level": level, "reasons": reasons, "basis": basis}
 
 def check_together(seq_a, seq_b):
     # 여섯 가지 조회를 한꺼번에 출발시킨다

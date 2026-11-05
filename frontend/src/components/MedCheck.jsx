@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import AlertBox from './AlertBox'
 import ErrorMessage from './ErrorMessage'
 import Loading from './Loading'
+import SourceChip from './SourceChip'
 
 // 내 약 함께 먹기 점검: <MedCheck key={횟수} />. 약이 바뀌면 key를 바꿔 다시 점검해요
 // 판정별 표시와 경고 종류. 색만으로 구분하지 않게 글자로도 판정을 적어요
@@ -50,10 +51,17 @@ function MedCheck() {
             title={`${shown.icon} ${result.item_name_a} + ${result.item_name_b}: ${shown.label}`}
           >
             {result.reasons.map(reason => <p key={reason}>{reason}</p>)}
+            {result.basis.length > 0 && (
+              <p style={{ marginTop: 8 }}>
+                <SourceChip>판정 근거: {result.basis.join(' · ')}</SourceChip>
+              </p>
+            )}
           </AlertBox>
         )
       })}
-      <p className="muted">진단이나 처방이 아니에요. 복용 전에 약사와 상의하세요.</p>
+      <p className="muted">
+        식약처 자료에서 찾지 못한 조합이라도 문제가 없다는 뜻은 아니에요. 진단이나 처방이 아니에요. 복용 전에 약사와 상의하세요.
+      </p>
     </div>
   )
 }
