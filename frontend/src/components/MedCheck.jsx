@@ -3,6 +3,7 @@ import AlertBox from './AlertBox'
 import ErrorMessage from './ErrorMessage'
 import Loading from './Loading'
 import SourceChip from './SourceChip'
+import TermNotes from './TermNotes'
 
 // 내 약 함께 먹기 점검: <MedCheck key={횟수} />. 약이 바뀌면 key를 바꿔 다시 점검해요
 // 판정별 표시와 경고 종류. 색만으로 구분하지 않게 글자로도 판정을 적어요
@@ -51,6 +52,7 @@ function MedCheck() {
             title={`${shown.icon} ${result.item_name_a} + ${result.item_name_b}: ${shown.label}`}
           >
             {result.reasons.map(reason => <p key={reason}>{reason}</p>)}
+            <TermNotes texts={result.reasons} />
             {result.basis.length > 0 && (
               <p style={{ marginTop: 8 }}>
                 <SourceChip>판정 근거: {result.basis.join(' · ')}</SourceChip>
