@@ -3,6 +3,7 @@ from functools import lru_cache
 import httpx
 from fastapi import APIRouter, HTTPException, Query
 from ..services.drug_api import search_by_name_ranked, get_by_seq, search_by_efcy
+from ..services.dur_api import get_ingredients
 from ..services.query_ai import parse_query
 from ..services.synonym import find_symptom
 
@@ -48,6 +49,16 @@ def drug_smart(text: str, page: int = Query(1, ge=1)):
         raise HTTPException(status_code=503, detail=API_DOWN)
 
     return {"parsed": parsed, "total": total, "page": page, "size": PAGE_SIZE ,"items": items}
+
+@router.get("/drugs/{item_seq}/ingredients")
+def drug_ingredients(item_seq: str):
+    """약 상세의 성분 목록. 허가정보 API라서 상세와 따로 불러요."""
+    try:
+        items = get_ingredients(item_seq)
+    except httpx.HTTPError:
+        raise HTTPException(status_code=503, detail=API_DOWN)
+    names = [item["MTRAL_NM"] for item in items if item.get("MTRAL_NM")]
+    return {"ingredients": list(dict.fromkeys(names))}
 
 @router.get("/drugs/{item_seq}")
 def drug_detail(item_seq: str):
