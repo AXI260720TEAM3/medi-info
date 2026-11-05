@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from ..config import OLLAMA_URL
 from ..services.drug_api import get_by_seq, search_by_efcy, search_by_name
+from ..services.dur_api import get_ingredients
 from ..services.query_ai import parse_query
 from ..services.safety import check_safety, add_disclaimer, find_banned
 from ..services.synonym import find_symptom
@@ -142,7 +143,7 @@ def analyze_question(
 
     JSON 파싱이나 검증 실패 시 개인 복용을 허가하지 않고 503을 돌려줍니다.
     """
-    categories = list(DRUG_FIELDS) + ["기타"]
+    categories = list(DRUG_FIELDS) + ["성분", "기타"]
     selected_context = (
         f"품목번호 {selected_item_seq}의 약이 이미 선택됨. 약 이름을 다시 묻지 말 것."
         if selected_item_seq
@@ -164,6 +165,11 @@ def analyze_question(
 - action: 'clarify' 또는 'explain'
 - missing: 'age', 'purpose', 'other', 'none' 중 하나
 - resolved_question: 최근 대화 맥락을 반영해 현재 질문을 완전한 한 문장으로 바꾼 것
+
+[필드 구분 규칙]
+risk는 질문의 위험도를 나타냅니다. 반드시 '일반 질문', '개인 복용 질문', '위험 상황' 중 하나만 사용하세요.
+'복용 전 경고', '주의사항', '부작용', '보관방법' 등 의약품 정보 항목은 category에만 넣으세요.
+risk와 category에 같은 항목명을 넣으면 안 됩니다.
 
 [분류 기준]
 1. 일반 질문: 제품의 효능·용법·최소 복용 연령 등 객관적인 정보 요청.
@@ -187,6 +193,34 @@ JSON 외에 설명, 마크다운, 코드 블록을 출력하지 마세요.
         raise HTTPException(status_code=503, detail="AI 질문 분석 결과를 확인할 수 없어요.") from exc
     if not isinstance(result, dict):
         raise HTTPException(status_code=503, detail="AI 질문 분석 형식이 올바르지 않아요.")
+
+    # AI가 위험도(risk)와 정보 항목(category)을 혼동하면 한 번만 재분석
+    if result.get("risk") not in RISKS:
+        retry_prompt = (
+            prompt
+            + "\n[재분석 요청]\n"
+            + "이전 분석에서 risk에 허용되지 않은 값을 넣었습니다.\n"
+            + "risk는 반드시 '일반 질문', '개인 복용 질문', '위험 상황' 중 하나여야 합니다.\n"
+            + "의약품 정보 항목명은 category에만 넣으세요.\n"
+            + "위험 상황과 개인 복용 질문을 일반 질문으로 임의 변경하지 마세요.\n"
+            + "원래 사용자 질문을 다시 분석하고 JSON 객체 하나만 반환하세요."
+        )
+
+        raw = ollama_generate(retry_prompt, json_mode=True)
+
+        try:
+            result = json.loads(raw)
+        except (json.JSONDecodeError, TypeError) as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="AI 질문 재분석 결과를 확인할 수 없어요.",
+            ) from exc
+
+        if not isinstance(result, dict):
+            raise HTTPException(
+                status_code=503,
+                detail="AI 질문 재분석 형식이 올바르지 않아요.",
+            )
 
     risk, category = result.get("risk"), result.get("category")
     action, missing = result.get("action"), result.get("missing")
@@ -513,6 +547,43 @@ def ask(data: AskRequest):
         return reply(
             FOLLOWUPS[analysis["missing"]], item_seq, item_name, "대화 안내", risk,
             category if category != "기타" else None,
+        )
+
+    # 성분 질문은 기존 공식 성분 API로 조회
+    if category == "성분":
+        try:
+            ingredients = get_ingredients(item_seq)
+        except httpx.HTTPError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="성분 정보 서버가 응답하지 않아요.",
+            ) from exc
+
+        names = [
+            item["MTRAL_NM"].strip()
+            for item in ingredients
+            if item.get("MTRAL_NM")
+        ]
+        names = list(dict.fromkeys(names))
+
+        if not names:
+            return reply(
+                "공식 자료에서 이 약의 성분 정보를 확인할 수 없어요. 약사와 상담해 주세요.",
+                item_seq, item_name, None, risk, category,
+            )
+
+        answer = f"{item_name}의 성분은 {', '.join(names)}입니다."
+
+        if risk == "개인 복용 질문":
+            answer += " 이 정보만으로 개인별 복용 가능 여부를 판단할 수 없으므로 의사 또는 약사에게 확인해 주세요."
+
+        return reply(
+            answer,
+            item_seq,
+            item_name,
+            "식품의약품안전처 의약품 제품 허가정보",
+            risk,
+            category,
         )
 
     if category == "기타":
