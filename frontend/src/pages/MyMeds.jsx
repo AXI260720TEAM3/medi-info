@@ -3,6 +3,7 @@ import { Link } from 'react-router'
 import ErrorMessage from '../components/ErrorMessage'
 import Loading from '../components/Loading'
 import MedCheck from '../components/MedCheck'
+import MedProfile from '../components/MedProfile'
 
 // 성분 칸 글자: 불러오는 중, 조회 실패, 정보 없음을 구분해요
 function ingredientText(ingredients, itemSeq) {
@@ -70,6 +71,7 @@ function MyMeds() {
   return (<>
     <h1 className="title">내 약</h1>
     {deleteError && <ErrorMessage message={deleteError} />}
+    {meds.length > 0 && <MedProfile checkKey={checkKey} onChange={() => setCheckKey(checkKey + 1)} />}
     {meds.length >= 2 && <MedCheck key={checkKey} />}
     {meds.length === 0 && <p className="muted">등록한 약이 없어요.</p>}
     {meds.length > 0 && (

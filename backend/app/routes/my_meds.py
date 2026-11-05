@@ -1,9 +1,12 @@
+from typing import Literal
+
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from ..deps import get_current_user, require_health_consent
-from ..services.dur_api import check_interaction, ingredient_names
-from ..services.my_meds import add_med, delete_med, list_meds
+from ..services.dur_api import check_interaction, ingredient_names, profile_cautions
+from ..services.my_meds import add_med, delete_med, get_profile, list_meds, set_profile
+from ..services.safety import CAUTION_MESSAGES
 
 router = APIRouter(
     prefix="/api/my-meds",
@@ -18,6 +21,10 @@ class MedRequest(BaseModel):
     item_name: str = Field(min_length=1, max_length=200)
 
 
+class ProfileRequest(BaseModel):
+    target: Literal["없음", "임부", "소아", "노인"]
+
+
 @router.get("")
 def my_meds(user: dict = Depends(require_health_consent)):
     return list_meds(user["user_id"])
@@ -29,12 +36,41 @@ def my_med_ingredients(user: dict = Depends(require_health_consent)):
     return ingredient_names([med["item_seq"] for med in meds])
 
 
+@router.get("/profile")
+def my_profile(user: dict = Depends(require_health_consent)):
+    return {"target": get_profile(user["user_id"])}
+
+
+@router.put("/profile")
+def change_profile(data: ProfileRequest, user: dict = Depends(require_health_consent)):
+    set_profile(user["user_id"], data.target)
+    return {"target": data.target}
+
+
+@router.get("/cautions")
+def my_med_cautions(user: dict = Depends(require_health_consent)):
+    target = get_profile(user["user_id"])
+    if target not in ("임부", "소아", "노인"):  # 표에는 수유도 있지만 화면에서 고를 수 없다
+        return {"target": target, "results": []}
+    meds = list_meds(user["user_id"])
+    cautions = profile_cautions(target, [med["item_seq"] for med in meds])
+    return {
+        "target": target,
+        "notice": CAUTION_MESSAGES[target],
+        "results": [
+            {"item_seq": med["item_seq"], "item_name": med["item_name"], "cautions": cautions[med["item_seq"]]}
+            for med in meds
+        ],
+    }
+
+
 @router.get("/check")
 def check_my_meds(user: dict = Depends(require_health_consent)):
     meds = list_meds(user["user_id"])
     names = {med["item_seq"]: med["item_name"] for med in meds}
     try:
-        results = check_interaction(list(names))
+        # 어린이의 양은 나이와 몸무게로 정하므로 성인 최대 용량을 보여 주지 않는다
+        results = check_interaction(list(names), show_max_dose=get_profile(user["user_id"]) != "소아")
     except httpx.HTTPError:
         raise HTTPException(status_code=503, detail=API_DOWN)
     for result in results:
