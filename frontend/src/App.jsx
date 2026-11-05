@@ -7,7 +7,6 @@ import StyleGuide from './pages/StyleGuide'
 import Login from './pages/Login'
 import Signup from './pages/Signup'
 import MyMeds from './pages/MyMeds'
-import Together from './pages/Together'
 import FindAccount from './pages/FindAccount'
 import Account from './pages/Account'
 import Chat from './pages/Chat'
@@ -27,8 +26,7 @@ function App(){
         <Route path="/find-account" element={<FindAccount />} />
         <Route path="/chat" element={<Chat />} />
         <Route path="/my-meds" element={<MyMeds />} />
-        <Route path="/together" element={<Together />} />
-        <Route path="/chat" element={<Chat />} />
+        <Route path="/together" element={<Navigate to="/my-meds" replace />} />
         <Route path="*" element={<ErrorMessage message="없는 페이지예요. 주소를 확인해 주세요." />} />
       </Route>
     </Routes>

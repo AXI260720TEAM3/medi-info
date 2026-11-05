@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import ErrorMessage from '../components/ErrorMessage'
 import Loading from '../components/Loading'
+import MedCheck from '../components/MedCheck'
 
 function MyMeds() {
   const [meds, setMeds] = useState(null)
@@ -9,6 +10,7 @@ function MyMeds() {
   const [needConsent, setNeedConsent] = useState(false)
   const [error, setError] = useState('')
   const [deleteError, setDeleteError] = useState('')
+  const [checkKey, setCheckKey] = useState(0)
 
   useEffect(() => {
     fetch('/api/my-meds')
@@ -33,6 +35,7 @@ function MyMeds() {
       const res = await fetch(`/api/my-meds/${medId}`, { method: 'DELETE' })
       if (!res.ok) throw new Error()
       setMeds(meds.filter(med => med.med_id !== medId))
+      setCheckKey(checkKey + 1)
     } catch {
       setDeleteError('삭제하지 못했어요. 잠시 후 다시 시도해 주세요.')
     }
@@ -50,6 +53,7 @@ function MyMeds() {
   return (<>
     <h1 className="title">내 약</h1>
     {deleteError && <ErrorMessage message={deleteError} />}
+    {meds.length >= 2 && <MedCheck key={checkKey} />}
     {meds.length === 0 && <p className="muted">등록한 약이 없어요.</p>}
     {meds.map(med => (
       <div key={med.med_id} className="card">
