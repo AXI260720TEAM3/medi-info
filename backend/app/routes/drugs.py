@@ -4,6 +4,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Query
 from ..services.drug_api import get_by_seq, search_by_efcy
 from ..services.drug_search import search_merged
+from ..services.permit_api import get_permit_detail
 from ..services.dur_api import get_ingredients
 from ..services.query_ai import parse_query
 from ..services.synonym import find_symptom
@@ -65,10 +66,12 @@ def drug_ingredients(item_seq: str):
 def drug_detail(item_seq: str):
     try:
         drug = get_by_seq(item_seq)
+        if drug is None:
+            drug = get_permit_detail(item_seq)
     except httpx.HTTPError:
         raise HTTPException(status_code=503, detail=API_DOWN)
     if drug is None:
-        raise HTTPException(status_code=404, detail="그 약을 찾을 수 없어요.")
+        raise HTTPException(status_code=404, detail="그 약을 찾을 수 없어요.") # 둘 다 없으면 404
     return drug
 
 

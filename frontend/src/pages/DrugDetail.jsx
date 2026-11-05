@@ -105,6 +105,7 @@ function DrugDetail() {
                 <h1 className="title" style={{ lineHeight: 1.35, overflowWrap: 'anywhere' }}>{drug.item_name}</h1>
                 <span className="muted">{drug.entp_name}</span>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  <Badge type="notice">{drug.etc_otc ?? '일반의약품'}</Badge>
                   {ingredientsLoading && <span className="muted">성분을 확인하는 중이에요</span>}
                   {!ingredientsLoading && ingredients.error && <span className="muted">성분 정보를 불러오지 못했어요</span>}
                   {!ingredientsLoading && ingredients.names?.length === 0 && <Badge type="none">성분 정보 없음</Badge>}
@@ -112,6 +113,12 @@ function DrugDetail() {
                 </div>
               </div>
             </div>
+
+            {drug.has_easy === false && (
+              <AlertBox type="info" title="쉬운 설명이 없는 약이에요">
+                <p>식약처 허가 문서를 그대로 옮겼어요. 전문의약품은 의사·약사의 지시에 따라 복용하세요.</p>
+              </AlertBox>
+            )}
 
             {hasText(drug.atpn_warn)
               ? (
@@ -158,7 +165,7 @@ function DrugDetail() {
             <Link to={chatLink} className="btn btn-primary">이 약 질문하기</Link>
             <button type="button" className="btn btn-secondary" onClick={handleAdd}>+ 내 약에 추가</button>
             {message && <p className="muted" style={{ margin: 0 }} role="status">{message}</p>}
-            <SourceChip>식약처 e약은요 · 갱신 {drug.update_de || '정보 없음'}</SourceChip>
+            {drug.has_easy === false ? <SourceChip>식약처 의약품 허가정보</SourceChip> : <SourceChip>식약처 e약은요 · 갱신 {drug.update_de || '정보 없음'}</SourceChip>}
           </section>
         </aside>
       </div>
