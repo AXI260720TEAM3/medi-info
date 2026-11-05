@@ -5,6 +5,7 @@ import ErrorMessage from '../components/ErrorMessage'
 import AlertBox from '../components/AlertBox'
 import Badge from '../components/Badge'
 import SourceChip from '../components/SourceChip'
+import DrugImage from '../components/DrugImage'
 
 // 펼침 목록 (시안 WEB-03). '경고'는 목록에서 빼고 맨 위 주의 상자로 올렸어요
 const SECTIONS = [
@@ -24,15 +25,6 @@ function Chevron({ up }) {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
       <path d={up ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'} />
-    </svg>
-  )
-}
-
-function PillIcon({ size }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
-      <rect x="3" y="9" width="18" height="6" rx="3" transform="rotate(-45 12 12)" />
-      <path d="M9.5 9.5l5 5" />
     </svg>
   )
 }
@@ -108,11 +100,7 @@ function DrugDetail() {
         <div style={{ ...COLUMN, flex: '999 1 520px', minWidth: 0 }}>
           <section className="card" style={{ ...COLUMN, padding: 24, borderRadius: 16 }}>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20 }}>
-              <div style={{ width: 96, height: 96, flex: 'none', borderRadius: 16, overflow: 'hidden', background: 'var(--surface-muted)', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                {drug.item_image
-                  ? <img src={drug.item_image} alt={`${drug.item_name} 낱알 사진`} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-                  : <PillIcon size={40} />}
-              </div>
+              <DrugImage src={drug.item_image} alt={drug.item_name} size={96} />
               <div style={{ flex: '1 1 260px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <h1 className="title" style={{ lineHeight: 1.35, overflowWrap: 'anywhere' }}>{drug.item_name}</h1>
                 <span className="muted">{drug.entp_name}</span>
