@@ -9,6 +9,13 @@ from .drug_api import get_by_seq
 INGR_URL = "https://apis.data.go.kr/1471000/DrugPrdtPrmsnInfoService08/getDrugPrdtMcpnDtlInq08"
 DUR_URL = "https://apis.data.go.kr/1471000/DURPrdlstInfoService03/getUsjntTabooInfoList03"
 EFFECT_URL = "https://apis.data.go.kr/1471000/DURPrdlstInfoService03/getEfcyDplctInfoList03"
+DUR_BASE = "https://apis.data.go.kr/1471000/DURPrdlstInfoService03/"
+# 복용자 프로필별 DUR 주의 자료
+CAUTION_URLS = {
+    "임부": DUR_BASE + "getPwnmTabooInfoList03",
+    "소아": DUR_BASE + "getSpcifyAgrdeTabooInfoList03",
+    "노인": DUR_BASE + "getOdsnAtentInfoList03",
+}
 LEVEL_ORDER = ("block", "warn", "unknown", "pass")  # 위험한 판정부터
 TIMEOUT = 15
 RETRIES = 2  # 공공 API는 같은 요청도 가끔 느려서 한 번 더 시도한다
@@ -82,7 +89,7 @@ def _groups(effects, ingredients):
         groups.add(NSAID_GROUP)
     return groups
 
-def _judge(seq_a, seq_b, a, b):
+def _judge(seq_a, seq_b, a, b, show_max_dose=True):
     """조회한 자료로 판정한다. a, b는 (금기, 성분, 효능군)이고 조회에 실패한 자료는 None이다."""
     taboo_a, ingr_a, effects_a = a
     taboo_b, ingr_b, effects_b = b
@@ -102,7 +109,7 @@ def _judge(seq_a, seq_b, a, b):
         reasons.append(f"{name} 성분이 두 약에 모두 들어 있어 너무 많이 먹게 될 수 있습니다")
     if same:
         basis.append("식약처 의약품 허가정보 성분 비교")
-    if ACETAMINOPHEN in same and all(_lookup_or_none(_states_max_dose, seq) for seq in (seq_a, seq_b)):
+    if show_max_dose and ACETAMINOPHEN in same and all(_lookup_or_none(_states_max_dose, seq) for seq in (seq_a, seq_b)):
         reasons.append(ACETAMINOPHEN_NOTE)
         basis.append("식약처 e약은요 경고문")
 
@@ -157,7 +164,30 @@ def ingredient_names(item_seqs):
     with ThreadPoolExecutor(max_workers=4) as pool:
         return dict(zip(seqs, pool.map(_ingredient_names, seqs)))
 
-def check_interaction(item_seqs):
+@lru_cache(maxsize=1000)
+def _get_cautions(target, item_seq):
+    rows = []
+    for item in _call(CAUTION_URLS[target], {"itemSeq": item_seq}):
+        # 내용이 비어 있거나 "-"인 자료도 있어서, 그때는 내용 없이 종류와 성분만 보여 준다
+        content = (item.get("PROHBT_CONTENT") or "").strip(' "-')
+        row = {"type": item.get("TYPE_NAME") or target, "ingredient": item.get("INGR_NAME") or "", "content": content}
+        if row not in rows:
+            rows.append(row)
+    return tuple(rows)
+
+def _cautions_or_none(target, item_seq):
+    try:
+        return list(_get_cautions(target, item_seq))
+    except (httpx.HTTPError, ValueError, KeyError):
+        return None
+
+def profile_cautions(target, item_seqs):
+    """약마다 프로필의 DUR 주의 자료를 돌려준다. 조회에 실패한 약은 None, 자료가 없는 약은 빈 목록."""
+    seqs = list(dict.fromkeys(item_seqs))
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        return dict(zip(seqs, pool.map(lambda seq: _cautions_or_none(target, seq), seqs)))
+
+def check_interaction(item_seqs, show_max_dose=True):
     """약 여러 개를 두 개씩 모두 비교한다. 위험한 판정이 앞에 오는 목록을 돌려준다.
 
     약마다 한 번만 조회하고, 일부가 실패해도 나머지 결과는 돌려준다.
@@ -166,7 +196,7 @@ def check_interaction(item_seqs):
     with ThreadPoolExecutor(max_workers=4) as pool:
         lookups = dict(zip(seqs, pool.map(_lookup_all, seqs)))
     results = [
-        {"item_seq_a": a, "item_seq_b": b, **_judge(a, b, lookups[a], lookups[b])}
+        {"item_seq_a": a, "item_seq_b": b, **_judge(a, b, lookups[a], lookups[b], show_max_dose)}
         for a, b in combinations(seqs, 2)
     ]
     results.sort(key=lambda result: LEVEL_ORDER.index(result["level"]))
