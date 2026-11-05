@@ -3,6 +3,7 @@ import AlertBox from './AlertBox'
 import ErrorMessage from './ErrorMessage'
 import Loading from './Loading'
 import SourceChip from './SourceChip'
+import TermNotes from './TermNotes'
 
 // 복용자 프로필: <MedProfile checkKey={횟수} onChange={함수} />
 const OPTIONS = [
@@ -54,6 +55,7 @@ function ProfileCautions() {
                 {caution.content}
               </p>
             ))}
+            <TermNotes texts={result.cautions.map(caution => caution.content)} />
             <p style={{ marginTop: 8 }}><SourceChip>출처: 식약처 DUR</SourceChip></p>
           </AlertBox>
         )
