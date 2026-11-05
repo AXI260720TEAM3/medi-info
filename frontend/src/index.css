@@ -129,6 +129,43 @@ a:hover {
   border-radius: var(--radius-card);
 }
 
+.table-card {   /* 표 카드: 좁은 화면에서는 표만 옆으로 밀려요 */
+  position: relative;
+  overflow-x: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+}
+.med-table {
+  width: 100%;
+  min-width: 520px;
+  border-collapse: collapse;
+  text-align: left;
+}
+.med-table th,
+.med-table td {
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.med-table th {
+  font-size: 14px;
+  color: var(--text-muted);
+}
+.med-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.med-table-action {
+  text-align: right;
+}
+.sr-only {      /* 화면에는 안 보이고 스크린 리더만 읽어요 */
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .input {
   width: 100%;
   min-height: 44px;
