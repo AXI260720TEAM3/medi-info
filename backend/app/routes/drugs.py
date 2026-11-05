@@ -2,7 +2,8 @@ from functools import lru_cache
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query
-from ..services.drug_api import search_by_name_ranked, get_by_seq, search_by_efcy
+from ..services.drug_api import get_by_seq, search_by_efcy
+from ..services.drug_search import search_merged
 from ..services.dur_api import get_ingredients
 from ..services.query_ai import parse_query
 from ..services.synonym import find_symptom
@@ -25,7 +26,7 @@ def cached_parse(text):
 @router.get("/drugs")
 def drug_list(q: str, page: int= Query(1, ge=1)): 
     try:
-        total, items = search_by_name_ranked(q, page=page, size=PAGE_SIZE)
+        total, items = search_merged(q, page=page, size=PAGE_SIZE)
     except httpx.HTTPError:
         raise HTTPException(status_code=503, detail=API_DOWN)
     return {"total": total, "page": page, "size": PAGE_SIZE, "items": items}
@@ -40,7 +41,7 @@ def drug_smart(text: str, page: int = Query(1, ge=1)):
 
     try:
         if parsed["drug_name"]:
-            total, items = search_by_name_ranked(parsed["drug_name"], page=page, size=PAGE_SIZE)
+            total, items = search_merged(parsed["drug_name"], page=page, size=PAGE_SIZE)
         elif parsed["symptom"]:
             total, items = search_by_efcy(parsed["symptom"], page=page, size=PAGE_SIZE)
         else:
