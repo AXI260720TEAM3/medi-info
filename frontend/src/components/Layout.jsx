@@ -6,6 +6,7 @@ const MENU = [
   { to: '/drugs', label: '검색' },
   { to: '/chat', label: 'AI 질문' },
   { to: '/my-meds', label: '내 약' },
+  { to: '/pharmacy', label: '약국' },
 ]
 
 function Layout() {
