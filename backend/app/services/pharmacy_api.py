@@ -1,4 +1,5 @@
 import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -8,9 +9,11 @@ from ..config import DATA_GO_KR_KEY
 # 국립중앙의료원 약국 정보 (응답은 XML만 와요)
 URL = "https://apis.data.go.kr/B552657/ErmctInsttInfoInqireService/getParmacyListInfoInqire"
 NEAR_URL = "https://apis.data.go.kr/B552657/ErmctInsttInfoInqireService/getParmacyLcinfoInqire"
+BASS_URL = "https://apis.data.go.kr/B552657/ErmctInsttInfoInqireService/getParmacyBassInfoInqire"   # 약국 하나의 요일별 시간표
 KST = ZoneInfo("Asia/Seoul")   # 서버 시계가 UTC여도 한국 요일로
 ALL_ROWS = 1000   # 지역 검색은 한 번에 다 받아요 (강남구 515곳, 약 1초)
 NEAR_ROWS = 50    # 위치 검색에서 문 연 곳을 거르려고 넉넉히 (강남역 기준 약 400m)
+EARLY = 800       # 이 시각(08:00) 전 새벽에만 '어제 밤부터 이어지는 영업'을 확인해요
 
 
 def _time_range(start, end):
@@ -50,6 +53,35 @@ def _now():
     return now.isoweekday(), now.hour * 100 + now.minute
 
 
+def _yesterday(today):
+    """어제 요일 번호. 월(1)의 어제는 일(7)"""
+    return 7 if today == 1 else today - 1
+
+
+def _late_night(yesterday_end, now):
+    """자정 넘김 영업: 어제 닫는 시각이 24시를 넘고(예: '2500') 지금이 그 전이면 어제 영업이 아직 안 끝났어요.
+    그럴 때 '오늘 01:00까지'를 돌려주고, 아니면 None.
+      금요일 0900~2500, 지금 토요일 00:30 -> '오늘 01:00까지'
+      금요일 0900~2500, 지금 토요일 01:10 -> None (이미 닫음)"""
+    if not yesterday_end or int(yesterday_end) <= 2400:
+        return None
+    left = int(yesterday_end) - 2400   # 2500 -> 100 (= 01:00)
+    if now >= left:
+        return None
+    return f"오늘 {left // 100:02d}:{left % 100:02d}까지"
+
+
+def _yesterday_end(hpid, yday):
+    """위치 API는 오늘 시각만 줘서, 약국 하나의 어제 닫는 시각을 기본정보 API로 따로 물어봐요.
+    못 받으면 None (오늘 시간표 결과를 그대로 써요)"""
+    try:
+        res = httpx.get(BASS_URL, params={"serviceKey": DATA_GO_KR_KEY, "HPID": hpid}, timeout=5)
+        res.raise_for_status()
+        return ET.fromstring(res.text).findtext(f".//dutyTime{yday}c")
+    except (httpx.HTTPError, ET.ParseError):
+        return None
+
+
 def search_pharmacy(sido="", sigungu="", page=1, size=10, open_now=False, name=""):
     """시/도·시/군/구·약국 이름으로 약국 목록을 받는다. (전체 건수, 약국 목록)을 돌려준다.
     open_now면 지금 문 연 곳만. 거른 뒤에 쪽을 나눠야 해서 한 번에 다 받아요.
@@ -66,11 +98,18 @@ def search_pharmacy(sido="", sigungu="", page=1, size=10, open_now=False, name="
     root = ET.fromstring(res.text)
 
     today, now = _now()
+    yday = _yesterday(today)
 
     result = []
     for item in root.iter("item"):
         start = item.findtext(f"dutyTime{today}s")
         end = item.findtext(f"dutyTime{today}c")
+        is_open = _is_open(start, end, now)
+        close = _close_label(end)
+        # 오늘 시간표로는 닫혔어도, 어제 밤 영업이 자정을 넘겨 아직 이어지면 영업 중
+        late = _late_night(item.findtext(f"dutyTime{yday}c"), now)
+        if not is_open and late:
+            is_open, close = True, late
         result.append({
             "id": item.findtext("hpid"),
             "name": item.findtext("dutyName"),
@@ -79,8 +118,8 @@ def search_pharmacy(sido="", sigungu="", page=1, size=10, open_now=False, name="
             "lat": item.findtext("wgs84Lat"),
             "lon": item.findtext("wgs84Lon"),
             "today_hours": _time_range(start, end),
-            "is_open": _is_open(start, end, now),
-            "close_label": _close_label(end),
+            "is_open": is_open,
+            "close_label": close,
         })
     if open_now:
         result = [p for p in result if p["is_open"]]
@@ -103,7 +142,7 @@ def search_nearby(lat, lon, size=10, open_now=False):
     res.raise_for_status()
     root = ET.fromstring(res.text)
 
-    _, now = _now()
+    today, now = _now()
 
     result = []
     for item in root.iter("item"):
@@ -121,6 +160,19 @@ def search_nearby(lat, lon, size=10, open_now=False):
             "is_open": _is_open(start, end, now),
             "close_label": _close_label(end),
         })
+
+    # 새벽에만: 오늘 시간표로 닫힌 약국의 어제 시간표를 물어봐서 자정 넘김 영업을 찾아요
+    # (한 곳씩 물어야 해서, 8곳씩 동시에 물어봐요. 낮에는 이 일을 안 해서 느려지지 않아요)
+    if now < EARLY:
+        closed = [p for p in result if not p["is_open"]]
+        yday = _yesterday(today)
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            ends = list(pool.map(lambda p: _yesterday_end(p["id"], yday), closed))
+        for p, y_end in zip(closed, ends):
+            late = _late_night(y_end, now)
+            if late:
+                p["is_open"], p["close_label"] = True, late
+
     if open_now:
         result = [p for p in result if p["is_open"]]
     return result[:size]
