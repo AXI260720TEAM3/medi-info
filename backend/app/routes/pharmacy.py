@@ -1,6 +1,6 @@
 import httpx
 from fastapi import APIRouter, HTTPException, Query
-from ..services.pharmacy_api import search_nearby, search_pharmacy
+from ..services.pharmacy_api import TooManyPharmacies, search_nearby, search_pharmacy
 
 router = APIRouter(
     prefix="/api",
@@ -18,6 +18,8 @@ def pharmacy_list(sido: str = "", sigungu: str = "", name: str = "", page: int =
         raise HTTPException(status_code=422, detail="시/도를 고르거나 약국 이름을 적어 주세요.")
     try:
         total,items = search_pharmacy(sido, sigungu, page=page, size=PAGE_SIZE, open_now=open_now, name=name)
+    except TooManyPharmacies as e:
+        raise HTTPException(status_code=422, detail=f"찾은 약국이 {e.total:,}곳이라 너무 많아요. 시/도를 함께 고르거나 이름을 더 자세히 적어 주세요.")
     except httpx.HTTPError:
         raise HTTPException(status_code=503, detail=API_DOWN)
     return {"total": total, "page": page, "size": PAGE_SIZE, "items":items}

@@ -1,3 +1,4 @@
+import math
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -11,7 +12,8 @@ URL = "https://apis.data.go.kr/B552657/ErmctInsttInfoInqireService/getParmacyLis
 NEAR_URL = "https://apis.data.go.kr/B552657/ErmctInsttInfoInqireService/getParmacyLcinfoInqire"
 BASS_URL = "https://apis.data.go.kr/B552657/ErmctInsttInfoInqireService/getParmacyBassInfoInqire"   # 약국 하나의 요일별 시간표
 KST = ZoneInfo("Asia/Seoul")   # 서버 시계가 UTC여도 한국 요일로
-ALL_ROWS = 1000   # 지역 검색은 한 번에 다 받아요 (강남구 515곳, 약 1초)
+ALL_ROWS = 1000   # 한 번에 받는 수 (API 최대). 강남구 515곳은 한 번, 약 1초
+MAX_ROWS = 3000   # 이보다 많으면 받지 않고 지역을 고르게 해요 ("온누리" 전국 1,897곳은 OK, "약국" 25,436곳은 너무 많음)
 NEAR_ROWS = 50    # 위치 검색에서 문 연 곳을 거르려고 넉넉히 (강남역 기준 약 400m)
 EARLY = 800       # 이 시각(08:00) 전 새벽에만 '어제 밤부터 이어지는 영업'을 확인해요
 
@@ -82,26 +84,46 @@ def _yesterday_end(hpid, yday):
         return None
 
 
+class TooManyPharmacies(Exception):
+    """찾은 약국이 MAX_ROWS보다 많을 때. total에 전체 수를 담아 라우트가 안내 문구를 만들어요"""
+    def __init__(self, total):
+        super().__init__(total)
+        self.total = total
+
+
+def _fetch_page(params, page_no):
+    """지역·이름 검색 API의 page_no쪽을 받아 (전체 건수, item 목록)"""
+    res = httpx.get(URL, params={**params, "pageNo": page_no}, timeout=10)
+    res.raise_for_status()
+    root = ET.fromstring(res.text)
+    return int(root.findtext(".//totalCount") or 0), list(root.iter("item"))
+
+
 def search_pharmacy(sido="", sigungu="", page=1, size=10, open_now=False, name=""):
     """시/도·시/군/구·약국 이름으로 약국 목록을 받는다. (전체 건수, 약국 목록)을 돌려준다.
     open_now면 지금 문 연 곳만. 거른 뒤에 쪽을 나눠야 해서 한 번에 다 받아요.
     name이 있으면 시/도 없이 전국에서 찾을 수 있고, 문 연 곳이 위로 와요."""
-    params = {"serviceKey": DATA_GO_KR_KEY, "ORD": "NAME", "pageNo": 1, "numOfRows": ALL_ROWS}
+    params = {"serviceKey": DATA_GO_KR_KEY, "ORD": "NAME", "numOfRows": ALL_ROWS}
     if sido:
         params["Q0"] = sido
     if sigungu:                      # 세종처럼 시/군/구가 없으면 Q1을 아예 안 보내요
         params["Q1"] = sigungu
     if name:
         params["QN"] = name          # 약국 이름 (부분 일치: "온누리"면 "2층온누리약국"도)
-    res = httpx.get(URL, params=params, timeout=10)
-    res.raise_for_status()
-    root = ET.fromstring(res.text)
+    total, items = _fetch_page(params, 1)
+    if total > MAX_ROWS:
+        raise TooManyPharmacies(total)
+    if total > ALL_ROWS:
+        count = math.ceil(total / ALL_ROWS)
+        for page_no in range(2, count + 1):
+            _, more = _fetch_page(params, page_no)
+            items += more
 
     today, now = _now()
     yday = _yesterday(today)
 
     result = []
-    for item in root.iter("item"):
+    for item in items:
         start = item.findtext(f"dutyTime{today}s")
         end = item.findtext(f"dutyTime{today}c")
         is_open = _is_open(start, end, now)
