@@ -47,6 +47,20 @@ const CARD = { display: 'flex', alignItems: 'center', gap: 12, padding: 16 }
 // 시/도의 시/군/구 목록. '전국'('')처럼 목록에 없는 시/도면 빈 목록
 const sigunguOf = sido => SIGUNGU[sido] ?? []
 
+// 주소에서 검색 칸에 넣을 시/도·시/군/구를 꺼내요. 우리 목록에 없으면 null
+//   "경기도 성남시 수정구 수정로 1"  -> { sido: '경기도', sigungu: '성남시' }
+//   "세종특별자치시 한누리대로 2130" -> { sido: '세종특별자치시', sigungu: '' }
+//   "충청남도 없는군 ..."             -> null
+function regionOf(addr) {
+  const [sido, second] = addr.split(' ')
+  const list = SIGUNGU[sido]
+
+  if (!list) return null
+  if (list.length === 0) return {sido, sigungu: ""}
+  if (list.includes(second)) return {sido, sigungu: second}
+  return null
+}
+
 const ICON_BTN = { width: 44, height: 44, flex: 'none', borderRadius: 12, background: 'var(--primary-bg)', color: 'var(--primary-text)', display: 'flex', alignItems: 'center', justifyContent: 'center' }
 
 // 위치를 못 받았을 때 보여 줄 말 (브라우저가 주는 오류 번호별)
@@ -90,6 +104,9 @@ function Pharmacy() {
         const data = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error(typeof data.detail === 'string' ? data.detail : '약국을 찾지 못했어요. 잠시 후 다시 시도해 주세요.')
         setAnswer({ key, total: data.total, items: data.items, error: '' })
+        // 내 위치로 찾았으면, 가장 가까운 약국의 시/도·시/군/구를 검색 칸에 맞춰 둬요
+        const region = near && data.items.length > 0 ? regionOf(data.items[0].addr) : null
+        if (region) setForm(f => ({ ...f, ...region }))
       })
       .catch(err => setAnswer({ key, total: 0, items: [], error: err.message }))
   }, [ready, near, lat, lon, sido, sigungu, name, page, showAll, key, retry])
