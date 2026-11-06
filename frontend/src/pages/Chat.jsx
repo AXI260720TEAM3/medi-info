@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
+import OpenPharmacies from '../components/OpenPharmacies'
 
 const API_URL = import.meta.env.VITE_API_URL || '/api/ask'
 const HISTORY_LIMIT = 6
@@ -10,6 +11,14 @@ function initialDrugContext() {
     itemSeq: params.get('itemSeq') || params.get('item_seq') || null,
     drugName: params.get('drugName') || params.get('drug_name') || null,
   }
+}
+
+// REQ-F-050: 약사 상담을 권하는 답이면 답변 아래에 "지금 문 연 약국"을 붙여요
+function needsPharmacy(message, isLast) {
+  return message.role === 'assistant'
+    && message.content.includes('약사')
+    && message.risk !== '위험 상황'
+    && isLast
 }
 
 export default function Chat() {
@@ -139,6 +148,8 @@ export default function Chat() {
             )}
 
           <div>{message.content}</div>
+
+          {needsPharmacy(message, index === messages.length - 1) && <OpenPharmacies />}
 
           {message.itemsNote && (
             <div style={{ marginTop: 8 }}>
