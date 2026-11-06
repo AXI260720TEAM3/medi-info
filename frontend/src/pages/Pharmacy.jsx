@@ -41,6 +41,15 @@ function nowLabel() {
 }
 
 const TOOL = { minHeight: 44, display: 'flex', alignItems: 'center', gap: 6, padding: '0 14px', fontSize: 15 }
+const FIELD = { flex: '1 1 150px', minWidth: 0, width: 'auto', fontSize: 15 }   // 검색 칸 하나 (.input의 width 100%를 풀어요)
+
+// 화면 제목: 무엇을 찾는 중인지에 맞춰요
+//   이름 검색 -> "'온누리' 약국",  문 닫은 곳도 보기 -> "약국 찾기",  그 밖 -> "지금 문 연 약국"
+function pageTitle(name, showAll) {
+  if (name !== '') return `'${name}' 약국`
+  if (showAll) return '약국 찾기'
+  return '지금 문 연 약국'
+}
 const HIDDEN = { position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }
 const NUMBER = { width: 30, height: 30, flex: 'none', borderRadius: 15, background: 'var(--text)', color: '#FFFFFF', fontSize: 14, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }
 const CARD = { display: 'flex', alignItems: 'center', gap: 12, padding: 16 }
@@ -167,54 +176,54 @@ function Pharmacy() {
 
   return (
     <div style={COLUMN}>
-      {/* 시안 WEB-PHARMACY: 제목 + 기준 시각 줄, 오른쪽에 내 위치·시/도·시/군/구 */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <h1 className="title">지금 문 연 약국</h1>
-          <p className="muted" style={{ margin: 0 }}>
-            {nowLabel()} 기준
-            {showResult && name !== '' && ` · '${name}' ${answer.total}곳 · 문 연 곳 먼저`}
-            {showResult && name === '' && ` · ${showAll ? '약국' : '영업 중'} ${answer.total}곳 · ${near ? '가까운 순' : '이름순'}`}
-            {showResult && totalPages > 1 && ` · ${page} / ${totalPages}쪽`}
-          </p>
-        </div>
+      {/* 제목 + 기준 시각 줄 */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <h1 className="title">{pageTitle(name, showAll)}</h1>
+        <p className="muted" style={{ margin: 0 }}>
+          {nowLabel()} 기준
+          {showResult && name !== '' && ` · ${answer.total}곳 · 문 연 곳 먼저`}
+          {showResult && name === '' && ` · ${showAll ? '약국' : '영업 중'} ${answer.total}곳 · ${near ? '가까운 순' : '이름순'}`}
+          {showResult && totalPages > 1 && ` · ${page} / ${totalPages}쪽`}
+        </p>
+      </div>
 
-        <form style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }} onSubmit={handleSearch}>
+      {/* 검색 칸: 넓은 화면은 한 줄, 좁은 화면은 저절로 줄바꿈 */}
+      <form className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 16 }} onSubmit={handleSearch}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           <button type="button" onClick={handleNear} disabled={geo.busy || loading} aria-pressed={near}
-            className="btn" style={{ ...TOOL, border: '1px solid var(--primary)', background: 'var(--primary-bg)', color: 'var(--primary-text)', fontWeight: 700 }}>
+            className="btn" style={{ ...TOOL, flex: '0 0 auto', border: '1px solid var(--primary)', background: near ? 'var(--primary)' : 'var(--primary-bg)', color: near ? '#FFFFFF' : 'var(--primary-text)' }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" /></svg>
             {geo.busy ? '찾는 중' : '내 위치'}
           </button>
           <label htmlFor="sido" style={HIDDEN}>시/도</label>
-          <select id="sido" className="input" style={TOOL}
+          <select id="sido" className="input" style={FIELD}
             value={form.sido} onChange={e => changeSido(e.target.value)}>
-            <option value="">전국 (이름으로 찾을 때)</option>
+            <option value="">전국</option>
             {SIDO.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
           {sigunguOf(form.sido).length > 0 && (<>
             <label htmlFor="sigungu" style={HIDDEN}>시/군/구</label>
-            <select id="sigungu" className="input" style={TOOL}
+            <select id="sigungu" className="input" style={FIELD}
               value={form.sigungu} onChange={e => setForm({ ...form, sigungu: e.target.value })}>
               {sigunguOf(form.sido).map(g => <option key={g} value={g}>{g}</option>)}
             </select>
           </>)}
           <label htmlFor="pharmacy-name" style={HIDDEN}>약국 이름 (선택)</label>
-          <input id="pharmacy-name" type="search" className="input" style={{ ...TOOL, width: 170 }} placeholder="약국 이름 (선택)"
+          <input id="pharmacy-name" type="search" className="input" style={{ ...FIELD, flex: '2 1 180px' }} placeholder="약국 이름 (선택)"
             value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
-          <button type="submit" className="btn btn-primary" style={TOOL} disabled={loading}>찾기</button>
-        </form>
-      </div>
-
-      {name === '' && (
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 44, alignSelf: 'flex-start', fontSize: 15, cursor: 'pointer' }}>
-          <input type="checkbox" checked={showAll} onChange={e => toggleAll(e.target.checked)} style={{ width: 20, height: 20 }} />
-          문 닫은 곳도 보기
-        </label>
-      )}
+          <button type="submit" className="btn btn-primary" style={{ ...TOOL, flex: '0 0 auto', padding: '0 22px' }} disabled={loading}>찾기</button>
+        </div>
+        {name === '' && (
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, alignSelf: 'flex-start', minHeight: 32, fontSize: 15, cursor: 'pointer' }}>
+            <input type="checkbox" checked={showAll} onChange={e => toggleAll(e.target.checked)} style={{ width: 20, height: 20, margin: 0 }} />
+            문 닫은 곳도 보기
+          </label>
+        )}
+      </form>
 
       {geo.error && <p role="alert" style={{ margin: 0, color: 'var(--text)' }}>{geo.error}</p>}
-      {!ready && <p className="muted" style={{ margin: 0 }}>내 위치를 누르거나, 지역을 고르거나, 약국 이름을 적어 주세요.</p>}
-      {loading && <Loading text="문 연 약국을 찾는 중이에요" />}
+      {!ready && <p className="muted" style={{ margin: 0 }}>내 위치를 누르면 가까운 약국을 보여 드려요. 지역이나 약국 이름으로도 찾을 수 있어요.</p>}
+      {loading && <Loading text="약국을 찾는 중이에요" />}
       {ready && !loading && answer.error && <ErrorMessage message={answer.error} onRetry={() => setRetry(r => r + 1)} />}
 
       {showResult && answer.total === 0 && (
