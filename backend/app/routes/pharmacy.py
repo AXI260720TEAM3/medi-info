@@ -12,9 +12,12 @@ PAGE_SIZE = 10
 
 
 @router.get("/pharmacies")
-def pharmacy_list(sido: str, sigungu: str = "", page: int = Query(1, ge=1), open_now: bool = True):
+def pharmacy_list(sido: str = "", sigungu: str = "", name: str = "", page: int = Query(1, ge=1), open_now: bool = True):
+    name = name.strip()
+    if not sido and not name:        # 전국 전체(수만 곳)는 막아요: 시/도나 약국 이름 중 하나는 있어야
+        raise HTTPException(status_code=422, detail="시/도를 고르거나 약국 이름을 적어 주세요.")
     try:
-        total,items = search_pharmacy(sido, sigungu, page=page, size=PAGE_SIZE, open_now=open_now)
+        total,items = search_pharmacy(sido, sigungu, page=page, size=PAGE_SIZE, open_now=open_now, name=name)
     except httpx.HTTPError:
         raise HTTPException(status_code=503, detail=API_DOWN)
     return {"total": total, "page": page, "size": PAGE_SIZE, "items":items}

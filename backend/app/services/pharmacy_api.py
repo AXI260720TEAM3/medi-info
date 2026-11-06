@@ -50,13 +50,17 @@ def _now():
     return now.isoweekday(), now.hour * 100 + now.minute
 
 
-def search_pharmacy(sido, sigungu, page=1, size=10, open_now=False):
-    """시/도와 시/군/구로 약국 목록을 받는다. (전체 건수, 약국 목록)을 돌려준다.
-    open_now면 지금 문 연 곳만. 거른 뒤에 쪽을 나눠야 해서 한 번에 다 받아요."""
-    params = {"serviceKey": DATA_GO_KR_KEY, "Q0": sido,
-              "ORD": "NAME", "pageNo": 1, "numOfRows": ALL_ROWS}
+def search_pharmacy(sido="", sigungu="", page=1, size=10, open_now=False, name=""):
+    """시/도·시/군/구·약국 이름으로 약국 목록을 받는다. (전체 건수, 약국 목록)을 돌려준다.
+    open_now면 지금 문 연 곳만. 거른 뒤에 쪽을 나눠야 해서 한 번에 다 받아요.
+    name이 있으면 시/도 없이 전국에서 찾을 수 있고, 문 연 곳이 위로 와요."""
+    params = {"serviceKey": DATA_GO_KR_KEY, "ORD": "NAME", "pageNo": 1, "numOfRows": ALL_ROWS}
+    if sido:
+        params["Q0"] = sido
     if sigungu:                      # 세종처럼 시/군/구가 없으면 Q1을 아예 안 보내요
         params["Q1"] = sigungu
+    if name:
+        params["QN"] = name          # 약국 이름 (부분 일치: "온누리"면 "2층온누리약국"도)
     res = httpx.get(URL, params=params, timeout=10)
     res.raise_for_status()
     root = ET.fromstring(res.text)
@@ -78,11 +82,14 @@ def search_pharmacy(sido, sigungu, page=1, size=10, open_now=False):
             "is_open": _is_open(start, end, now),
             "close_label": _close_label(end),
         })
-    # API는 시/군/구를 부분 일치로 찾아요: 부산 "서구"에 "강서구"가, 인천 "동구"에 "남동구"가 섞여요
     if open_now:
         result = [p for p in result if p["is_open"]]
+    # API는 시/군/구를 부분 일치로 찾아요: 부산 "서구"에 "강서구"가, 인천 "동구"에 "남동구"가 섞여요
     if sigungu:
         result = [p for p in result if p["addr"].split()[1] == sigungu]
+    if name:
+        # 문 연 곳이 위로 (False=0이 앞). 안정 정렬이라 같은 그룹 안은 이름순 그대로
+        result.sort(key=lambda p: not p["is_open"])
     first = (page - 1) * size
     return len(result), result[first:first + size]
 
