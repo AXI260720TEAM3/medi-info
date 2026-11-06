@@ -5,6 +5,7 @@ import ErrorMessage from '../components/ErrorMessage'
 import AlertBox from '../components/AlertBox'
 import { SIDO, SIGUNGU } from '../data/sigungu'
 import PharmacyMap from '../components/PharmacyMap'
+import { formatDistance } from '../utils/pharmacy'
 
 const PAGE_SIZE = 10
 
@@ -13,12 +14,6 @@ const COLUMN = { display: 'flex', flexDirection: 'column', gap: 16 }
 // 카카오맵에 약국 위치를 핀으로 띄우는 주소 (지도 키가 필요 없어요)
 const mapLink = p => `https://map.kakao.com/link/map/${encodeURIComponent(p.name)},${p.lat},${p.lon}`
 
-// 위치 API가 주는 거리(km 글자, 예: "0.12")를 사람이 읽기 쉬운 글자로
-function formatDistance(km) {
-  const n = Number(km)
-  if (n < 1) return `${Math.round(n * 1000)}m`
-  return `${n.toFixed(1)}km`
-}
 
 // 카드 둘째 줄 (시안: "350m · 오늘 23:00까지"). 지역 검색은 거리가 없어요
 // 영업 중:          "70m · 오늘 23:00까지"
