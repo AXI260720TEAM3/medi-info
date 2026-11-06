@@ -3,13 +3,9 @@ import { useSearchParams } from 'react-router'
 import Loading from '../components/Loading'
 import ErrorMessage from '../components/ErrorMessage'
 import AlertBox from '../components/AlertBox'
-import Badge from '../components/Badge'
+import { SIDO, SIGUNGU } from '../data/sigungu'
 
 const PAGE_SIZE = 10
-const SIDO = [
-  '서울특별시', '부산광역시', '대구광역시', '인천광역시', '광주광역시', '대전광역시', '울산광역시', '세종특별자치시',
-  '경기도', '강원특별자치도', '충청북도', '충청남도', '전북특별자치도', '전라남도', '경상북도', '경상남도', '제주특별자치도',
-]
 
 const COLUMN = { display: 'flex', flexDirection: 'column', gap: 16 }
 
@@ -22,6 +18,32 @@ function formatDistance(km) {
   if (n < 1) return `${Math.round(n * 1000)}m`
   return `${n.toFixed(1)}km`
 }
+
+// 카드 둘째 줄 (시안: "350m · 오늘 23:00까지"). 지역 검색은 거리가 없어요
+// 영업 중:          "70m · 오늘 23:00까지"
+// 오늘 하는데 닫힘: "120m · 지금 영업 안 함 · 오늘 09:00~19:00"
+// 오늘 쉼:          "300m · 오늘 쉬어요"
+function infoLine(p) {
+  let state
+  if (p.is_open) state = p.close_label
+  else if (p.today_hours) state = `지금 영업 안 함 · 오늘 ${p.today_hours}`
+  else state = '오늘 쉬어요'
+
+  if (p.distance) return `${formatDistance(p.distance)} · ${state}`
+  return state
+}
+
+// "금요일 22:40" (시안의 기준 시각 줄)
+const DAYS = ['일요일', '월요일', '화요일', '수요일', '목요일', '금요일', '토요일']
+function nowLabel() {
+  const d = new Date()
+  return `${DAYS[d.getDay()]} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+const TOOL = { minHeight: 44, display: 'flex', alignItems: 'center', gap: 6, padding: '0 14px', fontSize: 15 }
+const HIDDEN = { position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }
+const NUMBER = { width: 30, height: 30, flex: 'none', borderRadius: 15, background: 'var(--text)', color: '#FFFFFF', fontSize: 14, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }
+const ICON_BTN = { width: 44, height: 44, flex: 'none', borderRadius: 12, background: 'var(--primary-bg)', color: 'var(--primary-text)', display: 'flex', alignItems: 'center', justifyContent: 'center' }
 
 // 위치를 못 받았을 때 보여 줄 말 (브라우저가 주는 오류 번호별)
 const GEO_ERROR = {
@@ -40,11 +62,13 @@ function Pharmacy() {
   const near = lat !== '' && lon !== ''   // 주소에 좌표가 있으면 '내 주변' 검색
   const key = near ? `near|${lat}|${lon}` : `${sido}|${sigungu}|${page}`
 
-  const [form, setForm] = useState({ sido: sido || SIDO[0], sigungu })
+  const firstSido = sido || SIDO[0]
+  const [form, setForm] = useState({ sido: firstSido, sigungu: sigungu || (SIGUNGU[firstSido][0] ?? '') })
   const [answer, setAnswer] = useState({ key: '', total: 0, items: [], error: '' })
   const [retry, setRetry] = useState(0)
   const [geo, setGeo] = useState({ busy: false, error: '' })
-  const ready = near || (sido !== '' && sigungu !== '')
+  const noSigungu = SIGUNGU[sido]?.length === 0      // 세종처럼 시/군/구가 없는 곳
+  const ready = near || (sido !== '' && (sigungu !== '' || noSigungu))
   const loading = ready && answer.key !== key
   const totalPages = Math.ceil(answer.total / PAGE_SIZE)
 
@@ -79,10 +103,14 @@ function Pharmacy() {
     )
   }
 
+  // 시/도를 바꾸면 시/군/구 목록도 바뀌어야 해요
+  const changeSido = value => {
+    setForm({ sido: value, sigungu: SIGUNGU[value][0] ?? '' })
+  }
+
   const handleSearch = e => {
     e.preventDefault()
-    if (form.sigungu.trim() === '') return
-    setSearchParams({ sido: form.sido, sigungu: form.sigungu.trim() })   // 새 검색은 1쪽부터
+    setSearchParams({ sido: form.sido, sigungu: form.sigungu })   // 새 검색은 1쪽부터
   }
 
   const goPage = p => {
@@ -94,73 +122,77 @@ function Pharmacy() {
 
   return (
     <div style={COLUMN}>
-      <h1 className="title">약국 찾기</h1>
+      {/* 시안 WEB-PHARMACY: 제목 + 기준 시각 줄, 오른쪽에 내 위치·시/도·시/군/구 */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <h1 className="title">지금 문 연 약국</h1>
+          <p className="muted" style={{ margin: 0 }}>
+            {nowLabel()} 기준
+            {showResult && ` · 영업 중 ${answer.total}곳 · ${near ? '가까운 순' : '이름순'}`}
+            {showResult && totalPages > 1 && ` · ${page} / ${totalPages}쪽`}
+          </p>
+        </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <button type="button" className="btn btn-primary" style={{ minHeight: 52, fontSize: 18 }} onClick={handleNear} disabled={geo.busy || loading}>
-          {geo.busy ? '위치를 찾는 중이에요' : '내 주변 약국 찾기'}
-        </button>
-        {geo.error && <p role="alert" style={{ margin: 0, color: 'var(--text)' }}>{geo.error}</p>}
+        <form style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }} onSubmit={handleSearch}>
+          <button type="button" onClick={handleNear} disabled={geo.busy || loading} aria-pressed={near}
+            className="btn" style={{ ...TOOL, border: '1px solid var(--primary)', background: 'var(--primary-bg)', color: 'var(--primary-text)', fontWeight: 700 }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" /></svg>
+            {geo.busy ? '찾는 중' : '내 위치'}
+          </button>
+          <label htmlFor="sido" style={HIDDEN}>시/도</label>
+          <select id="sido" className="input" style={TOOL}
+            value={form.sido} onChange={e => changeSido(e.target.value)}>
+            {SIDO.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+          {SIGUNGU[form.sido].length > 0 && (<>
+            <label htmlFor="sigungu" style={HIDDEN}>시/군/구</label>
+            <select id="sigungu" className="input" style={TOOL}
+              value={form.sigungu} onChange={e => setForm({ ...form, sigungu: e.target.value })}>
+              {SIGUNGU[form.sido].map(g => <option key={g} value={g}>{g}</option>)}
+            </select>
+          </>)}
+          <button type="submit" className="btn btn-primary" style={TOOL} disabled={loading}>찾기</button>
+        </form>
       </div>
 
-      <form className="card" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: 16, borderRadius: 16 }} onSubmit={handleSearch}>
-        <label htmlFor="sido" className="muted" style={{ alignSelf: 'center' }}>시/도</label>
-        <select id="sido" className="input" style={{ flex: '1 1 160px', minHeight: 48, fontSize: 17 }}
-          value={form.sido} onChange={e => setForm({ ...form, sido: e.target.value })}>
-          {SIDO.map(s => <option key={s} value={s}>{s}</option>)}
-        </select>
-        <label htmlFor="sigungu" className="muted" style={{ alignSelf: 'center' }}>시/군/구</label>
-        <input id="sigungu" className="input" style={{ flex: '1 1 160px', minWidth: 0, minHeight: 48, fontSize: 17 }}
-          placeholder="예: 중구, 수원시"
-          value={form.sigungu} onChange={e => setForm({ ...form, sigungu: e.target.value })} />
-        <button type="submit" className="btn btn-primary" style={{ minHeight: 48, padding: '0 24px' }} disabled={loading}>찾기</button>
-      </form>
-
-      {!ready && <p className="muted" style={{ margin: 0 }}>내 주변 약국을 찾거나, 시/도를 고르고 시/군/구를 적어 주세요.</p>}
-      {loading && <Loading text="약국을 찾는 중이에요" />}
+      {geo.error && <p role="alert" style={{ margin: 0, color: 'var(--text)' }}>{geo.error}</p>}
+      {!ready && <p className="muted" style={{ margin: 0 }}>내 위치를 누르거나, 시/도를 고르고 시/군/구를 적어 주세요.</p>}
+      {loading && <Loading text="문 연 약국을 찾는 중이에요" />}
       {ready && !loading && answer.error && <ErrorMessage message={answer.error} onRetry={() => setRetry(r => r + 1)} />}
 
-      {showResult && (
-        <p style={{ margin: 0, color: 'var(--text-muted)' }}>
-          {near
-            ? <><strong style={{ color: 'var(--text)' }}>내 위치</strong>에서 가까운 약국 {answer.total}곳</>
-            : <><strong style={{ color: 'var(--text)' }}>{sido} {sigungu}</strong> 약국 {answer.total}곳</>}
-          {totalPages > 1 && ` · ${page} / ${totalPages}쪽`}
-        </p>
-      )}
-
       {showResult && answer.total === 0 && (
-        <AlertBox type="info" title="약국을 찾지 못했어요">
-          <p>{near ? '가까운 곳에 약국 정보가 없어요. 지역으로 찾아 주세요.' : '시/군/구 이름을 다시 확인해 주세요. 예: "중구", "수원시 장안구"'}</p>
-        </AlertBox>
-      )}
-
-      {showResult && answer.total > 0 && (
-        <AlertBox type="info" title="가기 전에 전화로 확인하세요">
-          <p>영업시간은 약국이 신고한 정보예요. 공휴일이나 사정에 따라 다를 수 있어요.</p>
+        <AlertBox type="info" title="지금 문 연 약국을 찾지 못했어요">
+          <p>{near
+            ? '가까운 곳에 지금 영업 중인 약국이 없어요. 지역으로 넓혀서 찾아 보세요.'
+            : '이 지역에 지금 영업 중인 약국이 없거나, 시/군/구 이름이 달라요. 예: "강남구", "수원시"'}</p>
         </AlertBox>
       )}
 
       {showResult && answer.items.length > 0 && (
-        <section aria-label="약국 목록" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {answer.items.map(p => (
-            <article key={p.id} className="card" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 16 }}>
-              <div style={{ flex: '1 1 240px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <span className="card-title" style={{ overflowWrap: 'anywhere' }}>{p.name}</span>
+        <section aria-label="약국 목록" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {answer.items.map((p, i) => (
+            <article key={p.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 16 }}>
+              <span style={NUMBER}>{(page - 1) * PAGE_SIZE + i + 1}</span>
+              <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                <strong style={{ fontSize: 17, overflowWrap: 'anywhere' }}>{p.name}</strong>
+                <span style={{ fontSize: 15, color: 'var(--text-muted)' }}>{infoLine(p)}</span>
                 <span className="muted" style={{ overflowWrap: 'anywhere' }}>{p.addr}</span>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {p.distance && <Badge type="notice">{formatDistance(p.distance)}</Badge>}
-                  {p.today_hours
-                    ? <Badge type="notice">오늘 {p.today_hours}</Badge>
-                    : <Badge type="none">오늘 쉬어요</Badge>}
-                </div>
               </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                {p.tel && <a href={`tel:${p.tel}`} className="btn btn-secondary">전화 {p.tel}</a>}
-                {p.lat && p.lon && <a href={mapLink(p)} target="_blank" rel="noreferrer" className="btn btn-secondary">지도</a>}
-              </div>
+              {p.lat && p.lon && (
+                <a href={mapLink(p)} target="_blank" rel="noreferrer" aria-label={`${p.name} 지도에서 보기`} style={ICON_BTN}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z" /><circle cx="12" cy="10" r="2.5" /></svg>
+                </a>
+              )}
+              {p.tel && (
+                <a href={`tel:${p.tel}`} aria-label={`${p.name}에 전화 ${p.tel}`} style={ICON_BTN}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z" /></svg>
+                </a>
+              )}
             </article>
           ))}
+          <p className="muted" style={{ margin: '4px 0 0', lineHeight: 1.55 }}>
+            영업시간은 국립중앙의료원 공공데이터 기준이라 실제와 다를 수 있어요. 방문 전 전화로 확인하세요.
+          </p>
         </section>
       )}
 
