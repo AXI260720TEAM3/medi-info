@@ -12,7 +12,7 @@ PAGE_SIZE = 10
 
 
 @router.get("/pharmacies")
-def pharmacy_list(sido: str, sigungu: str, page: int = Query(1, ge=1), open_now: bool = True):
+def pharmacy_list(sido: str, sigungu: str = "", page: int = Query(1, ge=1), open_now: bool = True):
     try:
         total,items = search_pharmacy(sido, sigungu, page=page, size=PAGE_SIZE, open_now=open_now)
     except httpx.HTTPError:
