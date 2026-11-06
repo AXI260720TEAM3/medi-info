@@ -379,3 +379,25 @@ a.source-chip:hover{
   color: var(--primary-text);
   text-decoration: none;
 }
+
+/* ===== 9. 약국 찾기: 목록 + 지도 ===== */
+.pharmacy-layout {            /* 휴대폰: 지도 위, 목록 아래 (한 줄로 쌓임) */
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px;
+}
+.pharmacy-map {
+  height: 300px;
+}
+@media (min-width: 900px) {   /* PC: 목록 왼쪽, 지도 오른쪽 (시안 WEB-PHARMACY) */
+  .pharmacy-layout {
+    grid-template-columns: minmax(340px, 2fr) 3fr;
+    align-items: start;
+  }
+  .pharmacy-map {
+    order: 2;                 /* 코드에서는 지도가 먼저지만 화면에서는 오른쪽으로 */
+    position: sticky;         /* 목록을 내려도 지도는 따라와요 */
+    top: 16px;
+    height: 560px;
+  }
+}

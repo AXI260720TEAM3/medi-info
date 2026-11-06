@@ -4,6 +4,7 @@ import Loading from '../components/Loading'
 import ErrorMessage from '../components/ErrorMessage'
 import AlertBox from '../components/AlertBox'
 import { SIDO, SIGUNGU } from '../data/sigungu'
+import PharmacyMap from '../components/PharmacyMap'
 
 const PAGE_SIZE = 10
 
@@ -251,6 +252,11 @@ function Pharmacy() {
       )}
 
       {showResult && answer.items.length > 0 && (
+      <div className="pharmacy-layout">
+        {/* 시안: PC는 목록 왼쪽 + 지도 오른쪽, 휴대폰은 지도 위 + 목록 아래 (index.css 9장) */}
+        <div className="pharmacy-map">
+          <PharmacyMap items={answer.items} start={(page - 1) * PAGE_SIZE + 1} myLat={lat} myLon={lon} />
+        </div>
         <section aria-label="약국 목록" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {answer.items.map((p, i) => (
             <article key={p.id} className="card" style={cardStyle(p)}>
@@ -276,6 +282,7 @@ function Pharmacy() {
             영업시간은 국립중앙의료원 공공데이터 기준이라 실제와 다를 수 있어요. 방문 전 전화로 확인하세요.
           </p>
         </section>
+      </div>
       )}
 
       {showResult && totalPages > 1 && (
