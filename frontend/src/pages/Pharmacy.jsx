@@ -149,6 +149,20 @@ function Pharmacy() {
     )
   }
 
+  // 들어오자마자 내 주변 보여 주기 (시안: 처음부터 "가까운 순" 목록)
+  // 처음 온 사람에게 갑자기 권한 창을 띄우지 않으려고, 권한 상태를 먼저 '조용히' 물어봐요
+  useEffect(() => {
+    if (searchParams.toString() !== '') return   // 이미 검색 조건이 있으면(새로고침, 뒤로 가기) 그대로
+    if (!navigator.permissions) return            // 권한 상태를 물을 수 없는 브라우저
+    navigator.permissions.query({ name: 'geolocation' })
+      .then(status => {
+        if(status.state === 'granted') handleNear()
+      })
+      .catch(() => {})
+    // 화면이 처음 열릴 때 한 번만 실행해요
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // 시/도를 바꾸면 시/군/구 목록도 바뀌어야 해요
   const changeSido = value => {
     setForm({ ...form, sido: value, sigungu: sigunguOf(value)[0] ?? '' })
