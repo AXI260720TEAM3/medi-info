@@ -4,6 +4,7 @@ import Loading from '../components/Loading'
 import ErrorMessage from '../components/ErrorMessage'
 import AlertBox from '../components/AlertBox'
 import { SIDO, SIGUNGU } from '../data/sigungu'
+import PharmacyMap from '../components/PharmacyMap'
 
 const PAGE_SIZE = 10
 
@@ -97,6 +98,7 @@ function Pharmacy() {
   const [answer, setAnswer] = useState({ key: '', total: 0, items: [], error: '' })
   const [retry, setRetry] = useState(0)
   const [geo, setGeo] = useState({ busy: false, error: '' })
+  const [selected, setSelected] = useState(null)   // 지도·목록에서 고른 약국 id
   const noSigungu = SIGUNGU[sido]?.length === 0      // 세종처럼 시/군/구가 없는 곳
   const ready = near || name !== '' || (sido !== '' && (sigungu !== '' || noSigungu))
   const loading = ready && answer.key !== key
@@ -180,6 +182,12 @@ function Pharmacy() {
 
   const showResult = ready && !loading && !answer.error
 
+  // 약국 하나를 고름: 카드를 누르면 지도 핀이, 핀을 누르면 목록 카드가 따라와요
+  const selectPharmacy = id => {
+    setSelected(id)
+    document.getElementById(`pharmacy-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }
+
   // 문 닫은 약국 카드는 회색 바탕으로 (문 닫은 곳도 볼 때만 섞여 나와요)
   const cardStyle = p => {
     if (p.is_open)
@@ -251,12 +259,23 @@ function Pharmacy() {
       )}
 
       {showResult && answer.items.length > 0 && (
+      <div className="pharmacy-layout">
+        {/* 시안: PC는 목록 왼쪽 + 지도 오른쪽, 휴대폰은 지도 위 + 목록 아래 (index.css 9장) */}
+        <div className="pharmacy-map">
+          <PharmacyMap items={answer.items} start={(page - 1) * PAGE_SIZE + 1} myLat={lat} myLon={lon}
+            selectedId={selected} onSelect={selectPharmacy} />
+        </div>
         <section aria-label="약국 목록" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {answer.items.map((p, i) => (
-            <article key={p.id} className="card" style={cardStyle(p)}>
+            <article key={p.id} id={`pharmacy-${p.id}`} className="card"
+              style={{ ...cardStyle(p), ...(p.id === selected && { borderColor: 'var(--primary)', boxShadow: '0 0 0 1px var(--primary)' }) }}>
               <span style={{ ...NUMBER, background: p.is_open ? 'var(--text)' : 'var(--text-muted)' }}>{(page - 1) * PAGE_SIZE + i + 1}</span>
               <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
-                <strong style={{ fontSize: 17, overflowWrap: 'anywhere' }}>{p.name}</strong>
+                {/* 이름을 누르면 지도에서 그 약국으로 (키보드로도 누를 수 있게 button) */}
+                <button type="button" onClick={() => selectPharmacy(p.id)} aria-pressed={p.id === selected}
+                  style={{ all: 'unset', cursor: 'pointer', fontSize: 17, fontWeight: 700, overflowWrap: 'anywhere' }}>
+                  {p.name}
+                </button>
                 <span style={{ fontSize: 15, color: 'var(--text-muted)' }}>{infoLine(p)}</span>
                 <span className="muted" style={{ overflowWrap: 'anywhere' }}>{p.addr}</span>
               </div>
@@ -276,6 +295,7 @@ function Pharmacy() {
             영업시간은 국립중앙의료원 공공데이터 기준이라 실제와 다를 수 있어요. 방문 전 전화로 확인하세요.
           </p>
         </section>
+      </div>
       )}
 
       {showResult && totalPages > 1 && (
