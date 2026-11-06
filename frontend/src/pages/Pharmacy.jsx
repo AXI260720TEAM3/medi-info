@@ -44,6 +44,9 @@ const TOOL = { minHeight: 44, display: 'flex', alignItems: 'center', gap: 6, pad
 const HIDDEN = { position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }
 const NUMBER = { width: 30, height: 30, flex: 'none', borderRadius: 15, background: 'var(--text)', color: '#FFFFFF', fontSize: 14, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }
 const CARD = { display: 'flex', alignItems: 'center', gap: 12, padding: 16 }
+// 시/도의 시/군/구 목록. '전국'('')처럼 목록에 없는 시/도면 빈 목록
+const sigunguOf = sido => SIGUNGU[sido] ?? []
+
 const ICON_BTN = { width: 44, height: 44, flex: 'none', borderRadius: 12, background: 'var(--primary-bg)', color: 'var(--primary-text)', display: 'flex', alignItems: 'center', justifyContent: 'center' }
 
 // 위치를 못 받았을 때 보여 줄 말 (브라우저가 주는 오류 번호별)
@@ -61,25 +64,27 @@ function Pharmacy() {
   const lon = searchParams.get('lon') ?? ''
   const page = Math.max(1, Number(searchParams.get('page')) || 1)
   const near = lat !== '' && lon !== ''   // 주소에 좌표가 있으면 '내 주변' 검색
+  const name = searchParams.get('name') ?? ''      // 약국 이름 검색
   const showAll = searchParams.get('all') === '1'   // 문 닫은 곳도 보기
-  const key = (near ? `near|${lat}|${lon}` : `${sido}|${sigungu}|${page}`) + `|${showAll}`
+  const key = (near ? `near|${lat}|${lon}` : `${sido}|${sigungu}|${name}|${page}`) + `|${showAll}`
 
-  const firstSido = sido || SIDO[0]
-  const [form, setForm] = useState({ sido: firstSido, sigungu: sigungu || (SIGUNGU[firstSido][0] ?? '') })
+  // 이름 검색은 시/도 없이(전국) 찾을 수 있어서 주소에 sido가 빈 채로 올 수 있어요
+  const firstSido = searchParams.has('sido') ? sido : SIDO[0]
+  const [form, setForm] = useState({ sido: firstSido, sigungu: sigungu || (sigunguOf(firstSido)[0] ?? ''), name })
   const [answer, setAnswer] = useState({ key: '', total: 0, items: [], error: '' })
   const [retry, setRetry] = useState(0)
   const [geo, setGeo] = useState({ busy: false, error: '' })
   const noSigungu = SIGUNGU[sido]?.length === 0      // 세종처럼 시/군/구가 없는 곳
-  const ready = near || (sido !== '' && (sigungu !== '' || noSigungu))
+  const ready = near || name !== '' || (sido !== '' && (sigungu !== '' || noSigungu))
   const loading = ready && answer.key !== key
   const totalPages = Math.ceil(answer.total / PAGE_SIZE)
 
   useEffect(() => {
     if (!ready) return
-    const open_now = String(!showAll)
+    const open_now = String(!showAll && name === '')   // 이름 검색은 닫은 곳도 보여 줘요 (문 연 곳이 위로)
     const url = near
       ? `/api/pharmacies/near?${new URLSearchParams({ lat, lon, open_now })}`
-      : `/api/pharmacies?${new URLSearchParams({ sido, sigungu, page: String(page), open_now })}`
+      : `/api/pharmacies?${new URLSearchParams({ sido, sigungu, name, page: String(page), open_now })}`
     fetch(url)
       .then(async res => {
         const data = await res.json().catch(() => ({}))
@@ -87,7 +92,7 @@ function Pharmacy() {
         setAnswer({ key, total: data.total, items: data.items, error: '' })
       })
       .catch(err => setAnswer({ key, total: 0, items: [], error: err.message }))
-  }, [ready, near, lat, lon, sido, sigungu, page, showAll, key, retry])
+  }, [ready, near, lat, lon, sido, sigungu, name, page, showAll, key, retry])
 
   // 주소에 '문 닫은 곳도 보기'를 남긴 채로 검색 조건을 바꿔요
   const go = params => setSearchParams(showAll ? { ...params, all: '1' } : params)
@@ -120,16 +125,16 @@ function Pharmacy() {
 
   // 시/도를 바꾸면 시/군/구 목록도 바뀌어야 해요
   const changeSido = value => {
-    setForm({ sido: value, sigungu: SIGUNGU[value][0] ?? '' })
+    setForm({ ...form, sido: value, sigungu: sigunguOf(value)[0] ?? '' })
   }
 
   const handleSearch = e => {
     e.preventDefault()
-    go({ sido: form.sido, sigungu: form.sigungu })   // 새 검색은 1쪽부터
+    go({ sido: form.sido, sigungu: form.sigungu, name: form.name.trim() })   // 새 검색은 1쪽부터
   }
 
   const goPage = p => {
-    go({ sido, sigungu, page: String(p) })
+    go({ sido, sigungu, name, page: String(p) })
     window.scrollTo(0, 0)
   }
 
@@ -137,7 +142,6 @@ function Pharmacy() {
 
   // 문 닫은 약국 카드는 회색 바탕으로 (문 닫은 곳도 볼 때만 섞여 나와요)
   const cardStyle = p => {
-    // TODO(human): CARD에 background를 더해서 돌려주기. 영업 중이면 'var(--surface)', 아니면 'var(--surface-muted)'
     if (p.is_open)
       return { ...CARD, background: 'var(--surface)'}
     return { ...CARD, background: 'var(--surface-muted)'}
@@ -152,7 +156,8 @@ function Pharmacy() {
           <h1 className="title">지금 문 연 약국</h1>
           <p className="muted" style={{ margin: 0 }}>
             {nowLabel()} 기준
-            {showResult && ` · ${showAll ? '약국' : '영업 중'} ${answer.total}곳 · ${near ? '가까운 순' : '이름순'}`}
+            {showResult && name !== '' && ` · '${name}' ${answer.total}곳 · 문 연 곳 먼저`}
+            {showResult && name === '' && ` · ${showAll ? '약국' : '영업 중'} ${answer.total}곳 · ${near ? '가까운 순' : '이름순'}`}
             {showResult && totalPages > 1 && ` · ${page} / ${totalPages}쪽`}
           </p>
         </div>
@@ -166,32 +171,40 @@ function Pharmacy() {
           <label htmlFor="sido" style={HIDDEN}>시/도</label>
           <select id="sido" className="input" style={TOOL}
             value={form.sido} onChange={e => changeSido(e.target.value)}>
+            <option value="">전국 (이름으로 찾을 때)</option>
             {SIDO.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
-          {SIGUNGU[form.sido].length > 0 && (<>
+          {sigunguOf(form.sido).length > 0 && (<>
             <label htmlFor="sigungu" style={HIDDEN}>시/군/구</label>
             <select id="sigungu" className="input" style={TOOL}
               value={form.sigungu} onChange={e => setForm({ ...form, sigungu: e.target.value })}>
-              {SIGUNGU[form.sido].map(g => <option key={g} value={g}>{g}</option>)}
+              {sigunguOf(form.sido).map(g => <option key={g} value={g}>{g}</option>)}
             </select>
           </>)}
+          <label htmlFor="pharmacy-name" style={HIDDEN}>약국 이름 (선택)</label>
+          <input id="pharmacy-name" type="search" className="input" style={{ ...TOOL, width: 170 }} placeholder="약국 이름 (선택)"
+            value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
           <button type="submit" className="btn btn-primary" style={TOOL} disabled={loading}>찾기</button>
         </form>
       </div>
 
-      <label style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 44, alignSelf: 'flex-start', fontSize: 15, cursor: 'pointer' }}>
-        <input type="checkbox" checked={showAll} onChange={e => toggleAll(e.target.checked)} style={{ width: 20, height: 20 }} />
-        문 닫은 곳도 보기
-      </label>
+      {name === '' && (
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 44, alignSelf: 'flex-start', fontSize: 15, cursor: 'pointer' }}>
+          <input type="checkbox" checked={showAll} onChange={e => toggleAll(e.target.checked)} style={{ width: 20, height: 20 }} />
+          문 닫은 곳도 보기
+        </label>
+      )}
 
       {geo.error && <p role="alert" style={{ margin: 0, color: 'var(--text)' }}>{geo.error}</p>}
-      {!ready && <p className="muted" style={{ margin: 0 }}>내 위치를 누르거나, 시/도를 고르고 시/군/구를 적어 주세요.</p>}
+      {!ready && <p className="muted" style={{ margin: 0 }}>내 위치를 누르거나, 지역을 고르거나, 약국 이름을 적어 주세요.</p>}
       {loading && <Loading text="문 연 약국을 찾는 중이에요" />}
       {ready && !loading && answer.error && <ErrorMessage message={answer.error} onRetry={() => setRetry(r => r + 1)} />}
 
       {showResult && answer.total === 0 && (
-        <AlertBox type="info" title={showAll ? '약국을 찾지 못했어요' : '지금 문 연 약국을 찾지 못했어요'}>
-          <p>{showAll
+        <AlertBox type="info" title={showAll || name ? '약국을 찾지 못했어요' : '지금 문 연 약국을 찾지 못했어요'}>
+          <p>{name
+            ? `'${name}'(이)라는 약국이 없어요. 이름을 줄여서(예: "온누리") 다시 찾아 보세요.`
+            : showAll
             ? '이 지역의 약국 정보가 없어요. 다른 지역으로 찾아 보세요.'
             : '지금 영업 중인 약국이 없어요. "문 닫은 곳도 보기"를 켜면 내일 갈 약국을 고를 수 있어요.'}</p>
         </AlertBox>
