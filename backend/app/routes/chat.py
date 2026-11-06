@@ -13,6 +13,7 @@ from ..config import OLLAMA_URL
 from ..services.drug_api import get_by_seq, search_by_efcy, search_by_name
 from ..services.dur_api import get_ingredients
 from ..services.query_ai import parse_query
+from ..services.search import find_drug
 from ..services.safety import check_safety, add_disclaimer, find_banned
 from ..services.synonym import find_symptom
 
@@ -159,12 +160,21 @@ def analyze_question(
 [현재 질문]
 {question}
 
-반드시 JSON 객체 하나만 출력하세요. 아래 필드 5개가 모두 필요합니다.
+반드시 JSON 객체 하나만 출력하세요. 아래 필드 6개가 모두 필요합니다.
 - risk: '일반 질문', '개인 복용 질문', '위험 상황' 중 하나
 - category: {', '.join(categories)} 중 하나
 - action: 'clarify' 또는 'explain'
 - missing: 'age', 'purpose', 'other', 'none' 중 하나
 - resolved_question: 최근 대화 맥락을 반영해 현재 질문을 완전한 한 문장으로 바꾼 것
+- drug_reference_ambiguous: 질문이 정확히 한 가지 약을 가리키면 false, 어떤 약인지 불분명하거나 여러 약을 동시에 가리키면 true
+
+[약 선택 모호성 판단]
+1. 이전 대화에 약이 하나만 등장하고 '그 약'이라고 질문하면 false입니다.
+2. 이전 대화에 서로 다른 약이 여러 개 등장하고 '그 약'이라고 질문하면 true입니다.
+3. 현재 질문에서 정확한 약 하나를 명시했다면 이전 대화에 다른 약이 있어도 false입니다.
+4. 현재 질문이 여러 약을 동시에 대상으로 한다면 true입니다.
+5. 약을 하나로 확정할 근거가 없으면 true입니다.
+6. 약 이름을 추측하거나 임의로 첫 번째 약을 선택하지 마세요.
 
 [필드 구분 규칙]
 risk는 질문의 위험도를 나타냅니다. 반드시 '일반 질문', '개인 복용 질문', '위험 상황' 중 하나만 사용하세요.
@@ -225,6 +235,7 @@ JSON 외에 설명, 마크다운, 코드 블록을 출력하지 마세요.
     risk, category = result.get("risk"), result.get("category")
     action, missing = result.get("action"), result.get("missing")
     resolved = result.get("resolved_question")
+    drug_reference_ambiguous = result.get("drug_reference_ambiguous")
     if (
         risk not in RISKS
         or category not in categories
@@ -232,12 +243,32 @@ JSON 외에 설명, 마크다운, 코드 블록을 출력하지 마세요.
         or missing not in (*FOLLOWUPS, "none")
         or not isinstance(resolved, str)
         or not resolved.strip()
+        or not isinstance(drug_reference_ambiguous, bool)
     ):
         raise HTTPException(status_code=503, detail="AI 질문 분석 결과를 확인할 수 없어요.")
     if risk == "위험 상황":
         action, missing = "explain", "none"
     if risk == "일반 질문":
         action, missing = "explain", "none"
+    if risk == "개인 복용 질문" and missing == "age":
+        # 현재 질문에서 아이의 나이를 명확하게 말한 경우
+        explicit_child_age = re.search(
+            r"^\s*\d{1,3}\s*(?:살|세)\s*(?:인\s*)?"
+            r"(?:아이|어린이|소아|아기)(?=가|는|도|에게|한테|의|\s)",
+            question,
+        )
+
+        # 여러 사람의 나이가 섞인 경우에는 자동 확정하지 않음
+        age_mentions = re.findall(
+            r"(?<!\d)\d{1,3}\s*(?:살|세)(?!\d)",
+            question,
+        )
+
+        if explicit_child_age and len(age_mentions) == 1:
+            action, missing = "explain", "none"
+        else:
+            action = "clarify"
+            resolved = question
     if action == "clarify" and missing == "none":
         raise HTTPException(status_code=503, detail="AI 질문 분석 결과가 모순되어 다시 확인이 필요해요.")
     return {
@@ -246,6 +277,7 @@ JSON 외에 설명, 마크다운, 코드 블록을 출력하지 마세요.
         "action": action,
         "missing": missing,
         "resolved_question": resolved.strip()[:1000],
+        "drug_reference_ambiguous":drug_reference_ambiguous,
     }
 
 
@@ -351,7 +383,7 @@ def _answer_from_official_info(
 [질문 정보 범주]
 {category}
 [선택된 제품]
-{drug['item_name']} (품목번호: {drug['item_seq']})
+{drug['item_name']}
 [공식 자료 — {SOURCE}]
 {evidence}
 [이전 대화]
@@ -362,6 +394,38 @@ def _answer_from_official_info(
 {question}
 """
     def rejection_reason(text: str) -> str | None:
+                # 공식 자료의 연령별 복용 금지를 AI 답변이 누락했는지 검사
+        if personal:
+            caution = str(drug.get("atpn") or "")
+
+            prohibited_under_ages = [
+                int(age)
+                for age in re.findall(
+                    r"(\d{1,3})\s*세\s*미만[^.\n]{0,100}복용하지\s*마십시오",
+                    caution,
+                )
+            ]
+
+            mentioned_ages = {
+                int(age)
+                for age in re.findall(
+                    r"(?<!\d)(\d{1,3})\s*(?:살|세)(?!\d)",
+                    question + "\n" + resolved_question,
+                )
+            }
+
+            if len(mentioned_ages) == 1 and prohibited_under_ages:
+                user_age = next(iter(mentioned_ages))
+
+                if any(user_age < limit for limit in prohibited_under_ages):
+                    has_prohibition = re.search(
+                        r"복용하지\s*마|복용하면\s*안|복용해서는\s*안"
+                        r"|복용할\s*수\s*없|복용\s*금지",
+                        text,
+                    )
+
+                    if not has_prohibition:
+                        return "공식 자료에 명시된 연령별 복용 금지 안내 누락"
         if HAN_PATTERN.search(text):
             return "한자가 포함된 표현"
 
@@ -511,6 +575,32 @@ def ask(data: AskRequest):
             "과다복용 또는 응급 상황이 의심되면 증상을 기다리지 말고 즉시 119나 응급의료기관에 연락하세요. "
             "복용한 약과 양·시각을 의료진에게 알려주세요.",
         )
+    # AI가 사용자 발언에 없는 나이를 만들어냈는지 확인
+    user_utterances = [question] + [
+        turn.content
+        for turn in data.history[-6:]
+        if turn.role == "user"
+    ]
+
+    age_pattern = r"(?<!\d)(\d{1,3})\s*(?:세|살)(?!\d)"
+
+    stated_ages = {
+        int(age)
+        for utterance in user_utterances
+        for age in re.findall(age_pattern, utterance)
+    }
+
+    resolved_ages = {
+        int(age)
+        for age in re.findall(age_pattern, analysis["resolved_question"])
+    }
+
+    if resolved_ages - stated_ages:
+        analysis["resolved_question"] = question
+
+        if risk == "개인 복용 질문":
+            analysis["action"] = "clarify"
+            analysis["missing"] = "age"
 
     # 약 검색/선택 API는 기존 계약 유지; 선택된 약이 있어야 개인별 공식 정보 설명 가능.
     if data.drug_name and not data.item_seq:
@@ -528,8 +618,68 @@ def ask(data: AskRequest):
         return result
 
     
+        # 약을 선택하지 않았다면 질문에서 약 이름을 찾아 자동 검색
     if not data.item_seq:
-        return reply("먼저 질문할 의약품을 검색하고 정확한 제품을 선택해 주세요.", risk=risk)
+        # 여러 약이 등장하거나 어느 약인지 불분명하면 자동 선택하지 않음
+        if analysis["drug_reference_ambiguous"]:
+            return reply(
+                "어떤 약에 대한 질문인지 확인이 필요해요. "
+                "여러 약 중 하나를 말씀하신 거라면 정확한 제품명을 알려주시거나 "
+                "제품을 선택해 주세요.",
+                risk=risk,
+            )
+
+        try:
+            search_result = find_drug(
+                analysis["resolved_question"] if data.history else question
+            )
+        except httpx.HTTPError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="약 정보 서버가 응답하지 않아요.",
+            ) from exc
+
+        if not isinstance(search_result, dict):
+            raise HTTPException(
+                status_code=503,
+                detail="약 검색 결과를 확인할 수 없어요.",
+            )
+
+        status = search_result.get("status")
+
+        if status == "found":
+            found_drug = search_result.get("drug") or {}
+            found_item_seq = found_drug.get("item_seq")
+
+            if not found_item_seq:
+                raise HTTPException(
+                    status_code=503,
+                    detail="검색된 약의 품목번호를 확인할 수 없어요.",
+                )
+
+            data.item_seq = str(found_item_seq)
+
+        elif status == "ambiguous":
+            items = search_result.get("candidates") or []
+            result = reply(
+                "검색된 약 중 정확한 제품을 선택해 주세요.",
+                risk=risk,
+            )
+            result["total"] = len(items)
+            result["items"] = items
+            return result
+
+        elif status == "none":
+            return reply(
+                "질문에서 정확한 의약품을 찾지 못했어요. 약 이름을 확인하거나 검색에서 제품을 선택해 주세요.",
+                risk=risk,
+            )
+
+        else:
+            raise HTTPException(
+                status_code=503,
+                detail="약 검색 상태를 확인할 수 없어요.",
+            )
 
     # 실제 의약품 정보를 확인한 뒤 필요한 것만 질문/설명
     try:
