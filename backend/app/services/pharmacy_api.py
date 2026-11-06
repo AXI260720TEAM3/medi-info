@@ -78,8 +78,11 @@ def search_pharmacy(sido, sigungu, page=1, size=10, open_now=False):
             "is_open": _is_open(start, end, now),
             "close_label": _close_label(end),
         })
+    # API는 시/군/구를 부분 일치로 찾아요: 부산 "서구"에 "강서구"가, 인천 "동구"에 "남동구"가 섞여요
     if open_now:
         result = [p for p in result if p["is_open"]]
+    if sigungu:
+        result = [p for p in result if p["addr"].split()[1] == sigungu]
     first = (page - 1) * size
     return len(result), result[first:first + size]
 

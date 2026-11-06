@@ -105,7 +105,6 @@ function Pharmacy() {
 
   // 시/도를 바꾸면 시/군/구 목록도 바뀌어야 해요
   const changeSido = value => {
-    // TODO(human): form의 sido를 value로, sigungu를 그 시/도의 첫 번째 시/군/구로 (세종처럼 없으면 '')
     setForm({ sido: value, sigungu: SIGUNGU[value][0] ?? '' })
   }
 
