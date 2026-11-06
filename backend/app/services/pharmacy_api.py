@@ -1,9 +1,10 @@
 import math
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+import holidays
 import httpx
 from ..config import DATA_GO_KR_KEY
 
@@ -16,6 +17,8 @@ ALL_ROWS = 1000   # 한 번에 받는 수 (API 최대). 강남구 515곳은 한 
 MAX_ROWS = 3000   # 이보다 많으면 받지 않고 지역을 고르게 해요 ("온누리" 전국 1,897곳은 OK, "약국" 25,436곳은 너무 많음)
 NEAR_ROWS = 50    # 위치 검색에서 문 연 곳을 거르려고 넉넉히 (강남역 기준 약 400m)
 EARLY = 800       # 이 시각(08:00) 전 새벽에만 '어제 밤부터 이어지는 영업'을 확인해요
+HOLIDAY = 8       # 약국 API의 공휴일 영업시간 칸 (dutyTime8s / dutyTime8c)
+KR_HOLIDAYS = holidays.KR()   # 한국 공휴일 (대체공휴일·선거일 포함). 날짜를 물으면 그해 목록을 알아서 만들어요
 
 
 def _time_range(start, end):
@@ -49,15 +52,19 @@ def _close_label(end):
     return f"오늘 {end[:2]}:{end[2:]}까지"
 
 
+def _day_col(d):
+    """날짜 d에 볼 시간표 칸 번호: 공휴일이면 8, 아니면 요일 1(월) ~ 7(일)"""
+    if d in KR_HOLIDAYS:
+        return HOLIDAY
+    return d.isoweekday()
+
+
 def _now():
-    """한국 시간 기준 (오늘 요일 1~7, 지금 시각 2240 같은 숫자)"""
+    """한국 시간 기준 (오늘 칸, 어제 칸, 지금 시각 2240 같은 숫자).
+    칸은 날짜로 계산해요: 어제가 공휴일이면 어제 칸은 '요일 - 1'이 아니라 8이에요"""
     now = datetime.now(KST)
-    return now.isoweekday(), now.hour * 100 + now.minute
-
-
-def _yesterday(today):
-    """어제 요일 번호. 월(1)의 어제는 일(7)"""
-    return 7 if today == 1 else today - 1
+    today = now.date()
+    return _day_col(today), _day_col(today - timedelta(days=1)), now.hour * 100 + now.minute
 
 
 def _late_night(yesterday_end, now):
@@ -73,13 +80,13 @@ def _late_night(yesterday_end, now):
     return f"오늘 {left // 100:02d}:{left % 100:02d}까지"
 
 
-def _yesterday_end(hpid, yday):
-    """위치 API는 오늘 시각만 줘서, 약국 하나의 어제 닫는 시각을 기본정보 API로 따로 물어봐요.
-    못 받으면 None (오늘 시간표 결과를 그대로 써요)"""
+def _bass_item(hpid):
+    """위치 API는 오늘 시각만 줘서, 약국 하나의 요일별·공휴일 시간표를 기본정보 API로 따로 물어봐요.
+    못 받으면 None (위치 API 결과를 그대로 써요)"""
     try:
         res = httpx.get(BASS_URL, params={"serviceKey": DATA_GO_KR_KEY, "HPID": hpid}, timeout=5)
         res.raise_for_status()
-        return ET.fromstring(res.text).findtext(f".//dutyTime{yday}c")
+        return ET.fromstring(res.text).find(".//item")
     except (httpx.HTTPError, ET.ParseError):
         return None
 
@@ -119,8 +126,7 @@ def search_pharmacy(sido="", sigungu="", page=1, size=10, open_now=False, name="
             _, more = _fetch_page(params, page_no)
             items += more
 
-    today, now = _now()
-    yday = _yesterday(today)
+    today, yday, now = _now()
 
     result = []
     for item in items:
@@ -164,11 +170,11 @@ def search_nearby(lat, lon, size=10, open_now=False):
     res.raise_for_status()
     root = ET.fromstring(res.text)
 
-    today, now = _now()
+    today, yday, now = _now()
 
     result = []
     for item in root.iter("item"):
-        start = item.findtext("startTime")   # 위치 API는 오늘 시각만 바로 줘요
+        start = item.findtext("startTime")   # 위치 API는 오늘(요일) 시각만 바로 줘요
         end = item.findtext("endTime")
         result.append({
             "id": item.findtext("hpid"),
@@ -183,16 +189,28 @@ def search_nearby(lat, lon, size=10, open_now=False):
             "close_label": _close_label(end),
         })
 
-    # 새벽에만: 오늘 시간표로 닫힌 약국의 어제 시간표를 물어봐서 자정 넘김 영업을 찾아요
-    # (한 곳씩 물어야 해서, 8곳씩 동시에 물어봐요. 낮에는 이 일을 안 해서 느려지지 않아요)
-    if now < EARLY:
-        closed = [p for p in result if not p["is_open"]]
-        yday = _yesterday(today)
-        with ThreadPoolExecutor(max_workers=8) as pool:
-            ends = list(pool.map(lambda p: _yesterday_end(p["id"], yday), closed))
-        for p, y_end in zip(closed, ends):
-            late = _late_night(y_end, now)
-            if late:
+    # 기본정보를 따로 물어야 하는 경우만 (한 곳씩 물어서 16곳씩 동시에. 평일 낮에는 안 해서 느려지지 않아요)
+    #   공휴일: 위치 API 시각이 공휴일 시간인지 알 수 없어서 모두 공휴일 칸(8)으로 다시 계산
+    #   새벽: 닫힘으로 나온 곳만 어제 칸을 보고 자정 넘김 영업 찾기
+    if today == HOLIDAY:
+        need = result
+    elif now < EARLY:
+        need = [p for p in result if not p["is_open"]]
+    else:
+        need = []
+    if need:
+        with ThreadPoolExecutor(max_workers=16) as pool:
+            infos = list(pool.map(lambda p: _bass_item(p["id"]), need))
+        for p, info in zip(need, infos):
+            if info is None:
+                continue
+            if today == HOLIDAY:
+                start, end = info.findtext(f"dutyTime{HOLIDAY}s"), info.findtext(f"dutyTime{HOLIDAY}c")
+                p["today_hours"] = _time_range(start, end)
+                p["is_open"] = _is_open(start, end, now)
+                p["close_label"] = _close_label(end)
+            late = _late_night(info.findtext(f"dutyTime{yday}c"), now)
+            if not p["is_open"] and late:
                 p["is_open"], p["close_label"] = True, late
 
     if open_now:
