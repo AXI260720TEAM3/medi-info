@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from ..config import OLLAMA_URL
 from ..services.drug_api import get_by_seq, search_by_efcy, search_by_name
+from ..services.privacy import mask_personal
 from ..services.dur_api import get_ingredients
 from ..services.query_ai import parse_query
 from ..services.search import find_drug
@@ -324,7 +325,7 @@ def save_chat_log(question: str, result: dict, level: str):
                 (:question, :answer, :question_type, :item_seq, :blocked, :block_reason)
             """),
             {
-                "question": question,
+                "question": mask_personal(question),   # 개인정보 모양은 가려서 저장 (I-7)
                 "answer": result["answer"],
                 "question_type": question_type,
                 "item_seq": result.get("item_seq"),
