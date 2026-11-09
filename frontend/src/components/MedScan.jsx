@@ -140,6 +140,9 @@ function MedScan({ onAdded }) {
                 아직 이 약을 갖고 있다면 복용 전에 약사와 상의하세요.
               </p>
             )}
+            {result.status === 'unchecked' && (
+              <p className="muted">약 정보 서버가 느려서 확인하지 못했어요. 잠시 후 다시 올리거나 약 검색에서 이름으로 찾아 주세요.</p>
+            )}
             {result.status === 'none' && (
               <p className="muted">허가정보에서 찾지 못했어요. 약 검색에서 이름으로 찾아 주세요.</p>
             )}
