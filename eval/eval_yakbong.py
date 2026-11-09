@@ -13,13 +13,20 @@ import sys
 import time
 from collections import defaultdict
 
-if len(sys.argv) > 1:
-    os.environ["VISION_MODEL"] = sys.argv[1]
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument("model", nargs="?", help="비전 모델 (기본: 서버와 같은 VISION_MODEL)")
+parser.add_argument("--answers", default="data/eval/yakbong_answers.csv",
+                    help="정답 파일. 실제 양식을 본뜬 그림은 data/eval/yakbong_layouts_answers.csv")
+ARGS = parser.parse_args()
+if ARGS.model:
+    os.environ["VISION_MODEL"] = ARGS.model
 os.environ.setdefault("OLLAMA_URL", "http://localhost:11434")
 sys.path.insert(0, "backend")
 from app.services import bag_scan  # noqa: E402  (위에서 정한 환경 변수를 읽는다)
 
-ANSWERS = "data/eval/yakbong_answers.csv"
+ANSWERS = ARGS.answers
 MODEL = bag_scan.VISION_MODEL
 
 
@@ -32,6 +39,12 @@ def key(name):
     return re.sub(r"\s", "", name)
 
 
+def same(answer, got):
+    """정답이 '…'로 끝나면 그림에서 이름이 잘린 것이라 앞부분만 맞으면 된다."""
+    a, g = key(answer), key(got)
+    return g.startswith(a[:-1]) if a.endswith("…") else a == g
+
+
 def main():
     rows = list(csv.DictReader(open(ANSWERS, encoding="utf-8")))
     stat = defaultdict(lambda: [0, 0, 0, 0, 0.0])  # 정답 이름 수, 맞힘, 지어냄, 그림 수, 걸린 시간
@@ -41,10 +54,11 @@ def main():
         start = time.time()
         got = read_names(row["file"])
         took = time.time() - start
-        hit = [n for n in answer if key(n) in {key(g) for g in got}]
+        hit = [n for n in answer if any(same(n, g) for g in got)]
         missed = [n for n in answer if n not in hit]
-        extra = [g for g in got if key(g) not in {key(n) for n in answer}]
-        for name in (row["variant"], "전체"):
+        extra = [g for g in got if not any(same(n, g) for n in answer)]
+        group = f"{row['layout']}/{row['variant']}" if row.get("layout") else row["variant"]
+        for name in (group, "전체"):
             s = stat[name]
             s[0] += len(answer)
             s[1] += len(hit)
