@@ -38,8 +38,8 @@ def set_profile(user_id: int, target: str) -> None:
         db.commit()
 
 
-def add_med(user_id: int, item_seq: str, item_name: str) -> dict | None:
-    params = {"user_id": user_id, "item_seq": item_seq, "item_name": item_name}
+def add_med(user_id: int, item_seq: str, item_name: str, added_by: str = "검색") -> dict | None:
+    params = {"user_id": user_id, "item_seq": item_seq, "item_name": item_name, "added_by": added_by}
     with SessionLocal() as db:
         exists = db.execute(
             text("SELECT 1 FROM user_med WHERE user_id = :user_id AND item_seq = :item_seq"),
@@ -50,9 +50,9 @@ def add_med(user_id: int, item_seq: str, item_name: str) -> dict | None:
 
         row = db.execute(
             text("""
-                INSERT INTO user_med (user_id, item_seq, item_name)
-                VALUES (:user_id, :item_seq, :item_name)
-                RETURNING med_id, item_seq, item_name
+                INSERT INTO user_med (user_id, item_seq, item_name, added_by)
+                VALUES (:user_id, :item_seq, :item_name, :added_by)
+                RETURNING med_id, item_seq, item_name, added_by
             """),
             params,
         ).mappings().one()

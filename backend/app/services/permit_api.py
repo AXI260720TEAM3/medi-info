@@ -33,6 +33,23 @@ def search_permit(name):
     return result
 
 
+def search_withdrawn(name):
+    """허가가 취소·취하된 약만 찾는다. 약봉지가 오래되면 지금은 팔지 않는 약이 나올 수 있다."""
+    params = {"serviceKey": DATA_GO_KR_KEY, "type": "json", "item_name": name, "numOfRows": 100}
+    res = httpx.get(URL, params=params, timeout=10)
+    res.raise_for_status()
+    result = []
+    for item in res.json()["body"].get("items") or []:
+        if item.get("CANCEL_NAME") not in (None, "", "정상"):
+            date = item.get("CANCEL_DATE") or ""
+            result.append({
+                **_rename(item),
+                "cancel_name": item["CANCEL_NAME"],  # 취하, 취소 등
+                "cancel_date": f"{date[:4]}-{date[4:6]}-{date[6:8]}" if len(date) == 8 else date,
+            })
+    return result
+
+
 def _clean(text):
     """문단 글에 섞인 HTML(표, &gt; 같은 기호)을 읽을 수 있는 글로. 표는 한 줄에 칸을 ' | '로."""
     text = text.replace("\n", " ")             # 원본 코드의 줄바꿈은 무시

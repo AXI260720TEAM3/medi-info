@@ -4,6 +4,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from ..deps import get_current_user, require_health_consent
+from ..services.bag_scan import BadImage, decode_image, match_names, read_names
 from ..services.dur_api import check_interaction, ingredient_names, profile_cautions
 from ..services.my_meds import add_med, delete_med, get_profile, list_meds, set_profile
 from ..services.safety import CAUTION_MESSAGES
@@ -19,10 +20,15 @@ API_DOWN = "약 정보 서버가 응답하지 않아요. 잠시 후 다시 시�
 class MedRequest(BaseModel):
     item_seq: str = Field(min_length=1, max_length=20)
     item_name: str = Field(min_length=1, max_length=200)
+    added_by: Literal["검색", "사진"] = "검색"
 
 
 class ProfileRequest(BaseModel):
     target: Literal["없음", "임부", "소아", "노인"]
+
+
+class ScanRequest(BaseModel):
+    image: str = Field(min_length=1, max_length=12_000_000)  # base64 사진 (8MB 사진이 약 11MB 글자)
 
 
 @router.get("")
@@ -79,9 +85,27 @@ def check_my_meds(user: dict = Depends(require_health_consent)):
     return {"level": results[0]["level"] if results else None, "results": results}
 
 
+@router.post("/scan")
+def scan_bag_photo(data: ScanRequest, user: dict = Depends(require_health_consent)):
+    """약봉지 사진에서 약 이름을 읽고 허가정보 후보를 돌려준다. 내 약에 넣지는 않는다 (사용자가 골라서 넣는다)."""
+    try:
+        image = decode_image(data.image)
+    except BadImage as error:
+        raise HTTPException(status_code=400, detail=str(error))
+    try:
+        names = read_names(image)
+    except httpx.HTTPError:
+        raise HTTPException(status_code=503, detail="사진을 읽는 AI가 응답하지 않아요. 잠시 후 다시 시도해 주세요.")
+    try:
+        results = match_names(names)
+    except httpx.HTTPError:
+        raise HTTPException(status_code=503, detail=API_DOWN)
+    return {"results": results}
+
+
 @router.post("", status_code=201)
 def register_med(data: MedRequest, user: dict = Depends(require_health_consent)):
-    med = add_med(user["user_id"], data.item_seq, data.item_name)
+    med = add_med(user["user_id"], data.item_seq, data.item_name, data.added_by)
     if med is None:
         raise HTTPException(status_code=409, detail="이미 등록한 약이에요.")
     return med
