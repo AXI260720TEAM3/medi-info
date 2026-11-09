@@ -1,0 +1,49 @@
+# One per cluster, shared with medi-info. Applying it once is enough: kubectl apply -f k8s/cluster/traefik-config.yaml
+#
+# Under WSL mirrored networking, traffic from this PC to a Service address times out, so k3s's default way of exposing
+# Traefik on ports 80/443 does not work (pods reach Services fine, and this PC reaches pod IPs fine).
+# Traefik therefore opens 80/443 itself on the PC and sends requests straight to the pods.
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    hostNetwork: true
+    # Without this, k3s keeps a helper pod holding ports 80/443 for the Service, and Traefik could not take them.
+    service:
+      enabled: false
+    providers:
+      kubernetesIngress:
+        publishedService:
+          enabled: false
+    ports:
+      web:
+        port: 80
+      websecure:
+        port: 443
+      # On the host network these would be open on the PC, so keep them off ports the projects use.
+      traefik:
+        port: 8088
+    # Only one pod can hold port 80, so the old one has to stop before the new one starts.
+    updateStrategy:
+      type: RollingUpdate
+      rollingUpdate:
+        maxSurge: 0
+        maxUnavailable: 1
+    # Binding a port below 1024 needs root plus this one capability.
+    podSecurityContext:
+      runAsNonRoot: false
+      runAsUser: 0
+      runAsGroup: 0
+    securityContext:
+      capabilities:
+        drop: [ALL]
+        add: [NET_BIND_SERVICE]
+    # The API server's Service address is one of the blocked paths, so go to it directly.
+    env:
+      - name: KUBERNETES_SERVICE_HOST
+        value: "127.0.0.1"
+      - name: KUBERNETES_SERVICE_PORT
+        value: "6443"

@@ -1,0 +1,24 @@
+# Ollama는 GPU가 필요해서 k8s 밖(WSL의 systemd 서비스)에서 돌아요. 이 Service는 클러스터 밖을 가리키는 '주소록'이에요
+# 10.42.0.1 = 파드에서 본 이 PC. 와이파이 주소와 달리 어느 네트워크에서도 같아요 (automachine과 같은 방식)
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama
+  namespace: medi-info
+spec:
+  ports:
+    - port: 11434
+---
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: ollama
+  namespace: medi-info
+  labels:
+    kubernetes.io/service-name: ollama
+addressType: IPv4
+ports:
+  - port: 11434
+endpoints:
+  - addresses:
+      - 10.42.0.1

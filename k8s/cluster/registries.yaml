@@ -1,0 +1,6 @@
+# Lets k3s pull images from the local registry that k8s/deploy.sh pushes to. Install once, as root:
+#   sudo cp k8s/cluster/registries.yaml /etc/rancher/k3s/registries.yaml && sudo systemctl restart k3s
+mirrors:
+  "localhost:5000":
+    endpoint:
+      - "http://127.0.0.1:5000"

@@ -1,0 +1,38 @@
+# 매일 질문 기록 정리 (기능명세 I-7, PR #74): 보관 기간(90일)이 지난 chat_log를 지워요
+# 백엔드와 같은 이미지로, 서버 대신 정리 명령 하나만 돌리고 끝나는 파드를 만들어요
+# 지금 바로 한 번 돌려 보기: kubectl -n medi-info create job --from=cronjob/privacy-purge purge-now
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: privacy-purge
+  namespace: medi-info
+spec:
+  schedule: "0 3 * * *"
+  timeZone: Asia/Seoul        # 위 시각을 한국 시간으로 (없으면 UTC라 낮 12시에 돌아요)
+  concurrencyPolicy: Forbid   # 앞의 정리가 안 끝났으면 새로 시작하지 않아요
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2         # 실패하면 2번까지 다시 해 봐요 (DB가 잠깐 멈췄을 때)
+      ttlSecondsAfterFinished: 86400
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: purge
+              image: localhost:5000/medi-backend:dev   # deploy.sh가 이번 버전으로 바꿔요
+              imagePullPolicy: IfNotPresent
+              command: ["python", "-m", "app.services.privacy"]
+              envFrom:
+                - configMapRef:
+                    name: backend-config
+                - secretRef:
+                    name: medi-secrets
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 500m
+                  memory: 256Mi

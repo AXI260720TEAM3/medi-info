@@ -1,0 +1,80 @@
+# PostgreSQL + pgvector. StatefulSet + 저장 공간 요청(PVC)이라 파드를 새로 만들어도 데이터가 남아요
+# (compose의 pgdata 볼륨과 같은 역할. 단, compose DB와는 다른 저장 공간이라 처음엔 빈 DB예요)
+apiVersion: v1
+kind: Service
+metadata:
+  name: db
+  namespace: medi-info
+spec:
+  clusterIP: None
+  selector:
+    app: db
+  ports:
+    - port: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: db
+  namespace: medi-info
+spec:
+  serviceName: db
+  replicas: 1
+  selector:
+    matchLabels:
+      app: db
+  template:
+    metadata:
+      labels:
+        app: db
+    spec:
+      containers:
+        - name: db
+          image: pgvector/pgvector:pg17
+          ports:
+            - containerPort: 5432
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 768Mi
+          # 처음 켤 때 초기 SQL(02_schema.sql)을 넣느라 시간이 걸려서, 그동안은 '살아 있나' 검사를 미뤄요
+          startupProbe:
+            exec:
+              command: [sh, -c, 'pg_isready -q -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            exec:
+              command: [sh, -c, 'pg_isready -q -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
+            periodSeconds: 5
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef: { name: medi-secrets, key: DB_USER }
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: medi-secrets, key: DB_PASS }
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef: { name: medi-secrets, key: DB_NAME }
+          volumeMounts:
+            - name: pgdata
+              mountPath: /var/lib/postgresql/data
+            # compose의 ./db/init과 같아요. 데이터 폴더가 비어 있을 때(처음 한 번)만 실행돼요
+            - name: init
+              mountPath: /docker-entrypoint-initdb.d
+      volumes:
+        - name: init
+          configMap:
+            name: db-init
+  volumeClaimTemplates:
+    - metadata:
+        name: pgdata
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 5Gi

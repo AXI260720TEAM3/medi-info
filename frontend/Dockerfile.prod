@@ -1,0 +1,20 @@
+# 배포용 이미지 (k8s): React를 빌드한 파일을 nginx가 내보내요. 개발은 지금처럼 Dockerfile + Vite 서버
+FROM node:24-slim AS build
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm ci
+
+# 카카오 지도 키는 빌드할 때 화면 코드에 들어가요(VITE_로 시작하는 값). .env.local은 이미지에 넣지 않고 빌드 인자로 받아요
+ARG VITE_KAKAO_MAP_KEY=""
+ENV VITE_KAKAO_MAP_KEY=$VITE_KAKAO_MAP_KEY
+
+COPY . .
+RUN ./node_modules/.bin/vite build
+
+# 8080에서 듣고, root로 실행하지 않는 nginx
+FROM nginxinc/nginx-unprivileged:1.30.6-alpine-slim
+
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/dist /usr/share/nginx/html
