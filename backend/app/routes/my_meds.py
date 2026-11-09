@@ -94,6 +94,10 @@ def scan_bag_photo(data: ScanRequest, user: dict = Depends(require_health_consen
         raise HTTPException(status_code=400, detail=str(error))
     try:
         names = read_names(image)
+    except httpx.HTTPStatusError as error:
+        if error.response.status_code == 400:  # 사진이 커서 AI가 한 번에 받을 수 있는 양을 넘었다 (화면은 줄여서 보낸다)
+            raise HTTPException(status_code=400, detail="사진이 너무 커서 읽지 못했어요. 약 이름 부분만 가까이 찍어 주세요.")
+        raise HTTPException(status_code=503, detail="사진을 읽는 AI가 응답하지 않아요. 잠시 후 다시 시도해 주세요.")
     except httpx.HTTPError:
         raise HTTPException(status_code=503, detail="사진을 읽는 AI가 응답하지 않아요. 잠시 후 다시 시도해 주세요.")
     try:

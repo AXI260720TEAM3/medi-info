@@ -5,18 +5,32 @@ import Loading from './Loading'
 
 // 약봉지 사진으로 내 약 추가: <MedScan onAdded={함수} />
 // AI가 읽은 이름은 틀릴 수 있어서, 허가정보에서 찾은 후보를 사용자가 직접 골라야 내 약에 넣어요
-const MAX_BYTES = 8 * 1024 * 1024
+const MAX_BYTES = 20 * 1024 * 1024  // 고르는 원본 사진. 보낼 때는 줄여서 보내요
+const MAX_SIDE = 1600  // 사진을 읽는 AI는 한 번에 받을 수 있는 양이 정해져 있어서, 폰 사진(4000px)은 그대로 보내면 거절해요
 const SKIP = 'skip'
 
 // '게보린정(수출명:돌로린정)' -> '게보린정'
 const baseName = itemName => itemName.split('(')[0].trim()
 
-function readFile(file) {
+// 긴 쪽이 MAX_SIDE를 넘으면 줄여서 JPG 글자(data:image/jpeg;base64,...)로 바꿔요
+function shrinkImage(file) {
   return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(reader.result)
-    reader.onerror = reject
-    reader.readAsDataURL(file)
+    const url = URL.createObjectURL(file)
+    const img = new Image()
+    img.onload = () => {
+      const scale = Math.min(1, MAX_SIDE / Math.max(img.width, img.height))
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.round(img.width * scale)
+      canvas.height = Math.round(img.height * scale)
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height)
+      URL.revokeObjectURL(url)
+      resolve(canvas.toDataURL('image/jpeg', 0.9))
+    }
+    img.onerror = () => {
+      URL.revokeObjectURL(url)
+      reject(new Error('사진 열기 실패'))
+    }
+    img.src = url
   })
 }
 
@@ -36,7 +50,7 @@ function MedScan({ onAdded }) {
     setMessage('')
     setResults(null)
     if (file.size > MAX_BYTES) {
-      setError('사진이 너무 커요. 8MB 이하로 올려 주세요.')
+      setError('사진이 너무 커요. 20MB 이하로 올려 주세요.')
       return
     }
     setScanning(true)
@@ -45,7 +59,7 @@ function MedScan({ onAdded }) {
       const res = await fetch('/api/my-meds/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: await readFile(file) }),
+        body: JSON.stringify({ image: await shrinkImage(file) }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
