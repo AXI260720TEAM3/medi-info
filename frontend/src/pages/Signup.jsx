@@ -167,7 +167,7 @@ function Signup(){
             </details>
             <details>
                 <summary>건강정보 수집 내용 보기</summary>
-                <p className="muted">항목: 내 약 목록, 프로필(임신·수유·나이 등). 목적: 함께 먹기 점검과 대상별 주의 표시. 보관: 탈퇴할 때까지. 동의하지 않아도 가입할 수 있어요.</p>
+                <p className="muted">항목: 내 약 목록, 프로필(임신·수유·나이 등). 목적: 함께 먹기 점검과 대상별 주의 표시. 보관: 탈퇴할 때까지. 동의하지 않아도 가입할 수 있어요. <Link to="/privacy">개인정보 처리방침 보기</Link></p>
             </details>
             {error && <p style={{margin: 0, color: 'var(--danger-text)'}}>{error}</p>}
             <button type="submit" className="btn btn-primary" disabled={loading}>가입하기</button>
