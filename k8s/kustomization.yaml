@@ -9,3 +9,4 @@ resources:
   - backend.yaml
   - web.yaml
   - ingress.yaml
+  - privacy-cron.yaml
