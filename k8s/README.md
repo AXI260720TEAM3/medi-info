@@ -22,6 +22,7 @@
 | `web.yaml` | `frontend/Dockerfile.prod`로 만든 nginx 화면 |
 | `ingress.yaml` | `medi.localhost`의 `/api`·`/` 나누기 |
 | `privacy-cron.yaml` | 매일 질문 기록 정리 (PR #74) |
+| `dict-job.yaml` | 배포할 때마다 사전 적재 (`data/dict/*.csv` → 위험 증상·주의 대상·고정 문구·동의어). 이게 없으면 AI 답이 500 (고정 문구가 없어서) |
 | `deploy.sh` | 이미지 만들기 → 로컬 저장소에 올리기 → Secret 만들기 → 적용 |
 | `cluster/` | 클러스터에 **한 번만** 하는 설정 (아래) |
 
@@ -122,6 +123,7 @@ Ollama는 검사하지 않아요. AI가 꺼져도 검색·약국·내 약은 돼
 
 | 증상 | 원인과 해결 |
 |---|---|
+| AI 질문이 한참 걸린 뒤 500 (`NoResultFound`) | 사전이 비어 있음. `kubectl -n medi-info logs job/dict-load`로 적재 결과 확인, 없으면 `bash k8s/deploy.sh` |
 | 약 검색·약국이 "서버가 응답하지 않아요" | 파드가 인터넷에 못 나감. `sudo bash k8s/cluster/wsl-masquerade.sh` (WSL 미러 네트워크가 flannel의 무작위 포트 답장을 버려요) |
 | `http://medi.localhost`가 안 열림 | `kubectl -n kube-system get pods`에서 traefik이 Running인지, `traefik-config.yaml`을 적용했는지 |
 | 배포했는데 `ImagePullBackOff` | `docker start registry`, `registries.yaml`을 넣고 k3s를 다시 켰는지 |

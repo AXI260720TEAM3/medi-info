@@ -1,0 +1,45 @@
+# 사전 적재 (위험 증상·주의 대상·고정 문구·동의어): data/dict/*.csv → DB
+# compose에서는 사람이 python scripts/load_dict.py 를 돌렸는데, k8s에서는 배포할 때마다 이 Job이 해요
+# 스크립트는 여러 번 돌려도 결과가 같아요 (있으면 고치고, CSV에 없는 건 지움)
+# deploy.sh가 스크립트와 CSV를 ConfigMap(dict-scripts, dict-data)으로 만들고, 옛 Job을 지운 뒤 이걸 새로 만들어요
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: dict-load
+  namespace: medi-info
+spec:
+  backoffLimit: 6               # DB가 아직 준비 중이면 실패 → 조금씩 늦춰 가며 다시 해 봐요
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: load
+          image: localhost:5000/medi-backend:dev   # psycopg가 들어 있는 백엔드 이미지를 그대로 써요
+          imagePullPolicy: IfNotPresent
+          workingDir: /work       # 스크립트가 data/dict/...를 상대 경로로 열어서, 여기서 실행해요
+          command: ["sh", "-c", "python scripts/load_dict.py && python scripts/load_synonym.py"]
+          envFrom:
+            - configMapRef:
+                name: backend-config
+            - secretRef:
+                name: medi-secrets
+          volumeMounts:
+            - name: scripts
+              mountPath: /work/scripts
+            - name: dict-data
+              mountPath: /work/data/dict
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+      volumes:
+        - name: scripts
+          configMap:
+            name: dict-scripts
+        - name: dict-data
+          configMap:
+            name: dict-data
