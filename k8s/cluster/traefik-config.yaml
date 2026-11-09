@@ -21,8 +21,11 @@ spec:
     ports:
       web:
         port: 80
+      # Neither project serves https from Traefik (medi-info's https comes from Tailscale Funnel), so keep 443 free.
+      # Holding 443 on the PC made https://<machine>.ts.net opened on this PC hit Traefik's self-signed cert.
+      # The entry point keeps its name (automachine's ops/app/traffic.py counts by name), only the port moves.
       websecure:
-        port: 443
+        port: 8444
       # On the host network these would be open on the PC, so keep them off ports the projects use.
       traefik:
         port: 8088

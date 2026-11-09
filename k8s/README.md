@@ -79,7 +79,8 @@ tailscale funnel status
 tailscale funnel reset          # 끄기 (주소를 아는 누구나 들어올 수 있어서, 시험·시연이 끝나면 꼭)
 ```
 
-- 확인은 **휴대폰(와이파이·Tailscale 끄고 LTE)**으로 해요. 이 PC에서 `https://○○.ts.net`을 열면 인증서 경고가 나와요: 이 PC 안에서는 그 주소가 Tailscale 내부 주소로 바뀌고, 443번은 Traefik(`traefik-config.yaml`의 hostNetwork)이 잡고 있어서 Traefik의 가짜 인증서(`TRAEFIK DEFAULT CERT`)가 대답해요. 밖에서 오는 Funnel 요청은 Tailscale 안으로 들어와 80번으로 넘겨져서 괜찮아요.
+- 진짜 확인은 **휴대폰(와이파이·Tailscale 끄고 LTE)**으로 해요. 이 PC에서도 열려요.
+- Traefik은 PC의 443번을 잡지 않아요(`traefik-config.yaml`의 `websecure`를 8444번으로 옮김). 443번을 Traefik이 잡고 있으면, 이 PC에서 `https://○○.ts.net`을 열 때 Tailscale 대신 Traefik이 가짜 인증서(`TRAEFIK DEFAULT CERT`)로 대답해서 인증서 경고가 났어요 (11/09에 고침)
 - 카카오 지도를 쓰려면 카카오 개발자 사이트의 웹 도메인에 `https://○○.ts.net`도 추가해요.
 
 ## 버전과 되돌리기
