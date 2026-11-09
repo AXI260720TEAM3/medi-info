@@ -1,0 +1,28 @@
+# 개발 때 Vite가 하던 일(/api는 백엔드로)을 k8s에선 Ingress(Traefik)가 해요
+# 같은 k3s의 automachine이 host 없이 '/'를 가져가서, medi-info는 이름(host)으로 구분해요
+#   http://medi.localhost  → 이 PC에서 (브라우저가 *.localhost를 이 PC로 보내고, 안전한 주소로 쳐 줘서 내 위치도 돼요)
+#   Tailscale Funnel 주소는 8단계에서 추가
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: medi-info
+  namespace: medi-info
+spec:
+  rules:
+    - host: medi.localhost
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 8000
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  number: 8080

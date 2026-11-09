@@ -1,0 +1,51 @@
+# FastAPI 백엔드. Deployment라서 파드가 죽으면 k8s가 새로 만들어요
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: medi-info
+spec:
+  selector:
+    app: backend
+  ports:
+    - port: 8000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: medi-info
+spec:
+  replicas: 1
+  revisionHistoryLimit: 5   # 되돌리기(rollout undo)용으로 옛 버전 5개를 기억
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      # WSL 미러 네트워크에서 바깥(공공 API)으로 나가는 연결이 끊기던 문제 (docker-compose.override.yml과 같은 값)
+      securityContext:
+        sysctls:
+          - name: net.ipv4.ip_local_port_range
+            value: "44620 48715"
+      containers:
+        - name: backend
+          image: localhost:5000/medi-backend:dev   # deploy.sh가 :dev를 그때 버전으로 바꿔요
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: backend-config
+            - secretRef:
+                name: medi-secrets
+          resources:
+            requests:
+              cpu: 100m
+              memory: 192Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi

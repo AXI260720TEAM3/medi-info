@@ -1,0 +1,5 @@
+# medi-info의 모든 k8s 자원은 이 이름표(namespace) 안에 있어요. 같은 k3s의 automachine과 섞이지 않게
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: medi-info

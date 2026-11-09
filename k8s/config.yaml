@@ -1,0 +1,11 @@
+# 비밀이 아닌 설정 (docker-compose.yml의 environment와 같은 역할)
+# 비밀 값(DB 비밀번호, 공공데이터 키, JWT, 메일)은 Secret "medi-secrets"에 있어요. deploy.sh가 .env로 만들어요
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+  namespace: medi-info
+data:
+  DB_HOST: db              # 아래 db Service 이름 = 클러스터 안의 주소
+  DB_PORT: "5432"
+  OLLAMA_URL: http://ollama:11434   # ollama.yaml의 Service (k8s 밖, 이 PC의 Ollama로 연결)
