@@ -70,7 +70,9 @@ def read_names(image: str) -> list[str]:
     names = []
     for line in re.split(r"[\n,]", res.json()["response"]):  # 한 줄에 쉼표로 이어 쓸 때도 있다
         line = re.sub(r"^\s*(\d+[.)]|[-*•])\s*", "", line).strip()  # 앞의 번호나 기호를 지운다
-        line = re.sub(r"[_(].*$", "", line).strip(" *_")  # '*코푸시럽_(0.2g,3mg)' -> '코푸시럽' (약국이 붙인 표시와 성분 용량)
+        # '*코푸시럽_(0.2g,3mg)', '알마겔정[44.5mg/1정]' -> 약국이 붙인 표시와 성분 용량을 뗀다
+        # 줄 맨 앞의 '[해열진통제]' 같은 효능 분류는 다 지워져 빈 줄이 된다
+        line = re.sub(r"[_(\[].*$", "", line).strip(" *_")
         if not line or line == "모름" or line.endswith(":") or len(line) > 40:  # 머리말과 문장은 뺀다
             continue
         if not looks_like_name(line):
