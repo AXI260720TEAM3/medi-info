@@ -62,6 +62,26 @@ docker compose start                   # 개발용 다시 켜기
 - k8s의 DB는 compose DB와 **다른 저장 공간**이에요. 처음엔 빈 DB(표만 있음)라서 회원가입부터 다시 해요.
 - 비밀 값은 `.env`에서 바로 클러스터의 Secret `medi-secrets`로 들어가요. 파일로 남기지 않아요.
 
+## 휴대폰에서 https로 (Tailscale Funnel)
+
+내 위치·Service Worker·푸시 알림은 브라우저가 `https://`(또는 `localhost`)에서만 허락해요. ZeroTier(`http://`)로는 안 돼요. Tailscale Funnel이 인증서까지 붙인 공개 주소를 만들어 줘요.
+
+```bash
+# 1) WSL: .env에 이 PC의 Tailscale 주소를 적고 배포 (deploy.sh가 그 주소용 Ingress를 하나 더 만들어요)
+echo 'FUNNEL_HOST=기기이름.tailXXXX.ts.net' >> .env   # Windows에서 tailscale status --json 의 Self.DNSName (끝의 . 빼고)
+bash k8s/deploy.sh
+```
+
+```powershell
+# 2) Windows PowerShell: 인터넷에 공개 (휴대폰에 Tailscale이 없어도 돼요)
+tailscale funnel --bg 80        # https://○○.ts.net → 이 PC의 80번(Traefik)
+tailscale funnel status
+tailscale funnel reset          # 끄기 (주소를 아는 누구나 들어올 수 있어서, 시험·시연이 끝나면 꼭)
+```
+
+- 확인은 **휴대폰(와이파이·Tailscale 끄고 LTE)**으로 해요. 이 PC에서 `https://○○.ts.net`을 열면 인증서 경고가 나와요: 이 PC 안에서는 그 주소가 Tailscale 내부 주소로 바뀌고, 443번은 Traefik(`traefik-config.yaml`의 hostNetwork)이 잡고 있어서 Traefik의 가짜 인증서(`TRAEFIK DEFAULT CERT`)가 대답해요. 밖에서 오는 Funnel 요청은 Tailscale 안으로 들어와 80번으로 넘겨져서 괜찮아요.
+- 카카오 지도를 쓰려면 카카오 개발자 사이트의 웹 도메인에 `https://○○.ts.net`도 추가해요.
+
 ## 버전과 되돌리기
 
 배포할 때마다 이미지에 `커밋번호`(커밋 안 했으면 `커밋번호-dirty-시각`) 이름표가 붙어요.
@@ -106,3 +126,5 @@ Ollama는 검사하지 않아요. AI가 꺼져도 검색·약국·내 약은 돼
 | 배포했는데 `ImagePullBackOff` | `docker start registry`, `registries.yaml`을 넣고 k3s를 다시 켰는지 |
 | 메모리가 모자람 (파드가 `Pending`·`OOMKilled`) | compose와 automachine을 껐는지. `free -h` |
 | 화면 새로고침하면 404 | `frontend/nginx.conf`의 `try_files ... /index.html` |
+| Funnel 주소가 "no available server" | `.env`에 `FUNNEL_HOST`를 넣고 `deploy.sh`를 했는지 (없으면 automachine의 `/` 규칙으로 가요) |
+| Funnel 주소가 "사이트에 연결할 수 없음" | `tailscale funnel status`가 `No serve config`이면 `tailscale funnel --bg 80` |

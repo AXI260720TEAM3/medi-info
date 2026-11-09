@@ -50,8 +50,31 @@ kubectl -n $NS create configmap db-init --from-file=db/init \
 kubectl kustomize k8s | sed "s#\(localhost:5000/medi-[a-z]*\):dev#\1:$TAG#" | kubectl apply -f -
 kubectl -n $NS annotate deploy backend web kubernetes.io/change-cause="$TAG" --overwrite
 
+# Tailscale Funnel 주소(https://○○.ts.net)로도 받기. 이 PC 전용이라 .env의 FUNNEL_HOST가 있을 때만 만들어요
+# (ingress.yaml에 주소를 적으면 팀원 PC에선 쓸모없고, Tailscale 주소가 저장소에 남아요)
+if [ -n "${FUNNEL_HOST:-}" ]; then
+  kubectl apply -f - <<EOF
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: medi-info-funnel
+  namespace: $NS
+spec:
+  rules:
+    - host: $FUNNEL_HOST
+      http:
+        paths:
+          - { path: /api, pathType: Prefix, backend: { service: { name: backend, port: { number: 8000 } } } }
+          - { path: /,    pathType: Prefix, backend: { service: { name: web,     port: { number: 8080 } } } }
+EOF
+else
+  kubectl -n $NS delete ingress medi-info-funnel --ignore-not-found
+fi
+
 kubectl -n $NS rollout status statefulset/db --timeout=180s
 for name in backend web; do
   kubectl -n $NS rollout status deploy/$name --timeout=180s
 done
 echo "열기: http://medi.localhost"
+[ -n "${FUNNEL_HOST:-}" ] && echo "밖에서(Funnel을 켰을 때): https://$FUNNEL_HOST"
+exit 0
