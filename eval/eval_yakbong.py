@@ -2,7 +2,8 @@
 
 그림과 정답은 scripts/make_yakbong_samples.py로 만든 data/eval/yakbong_answers.csv를 쓴다.
 맞힌 이름, 놓친 이름, 그림에 없는데 지어낸 이름을 센다. 띄어쓰기는 무시하고 비교한다.
-실행: python eval/eval_yakbong.py [모델 이름]  (Ollama가 켜져 있어야 함)
+서버와 같은 코드(backend/app/services/bag_scan.py의 read_names)로 읽어서, 지시문이나 거르는 규칙을 바꾸면 바로 점수에 나온다.
+실행: python eval/eval_yakbong.py [모델 이름]  (Ollama가 켜져 있어야 함. 기본 http://localhost:11434)
 """
 import base64
 import csv
@@ -12,28 +13,19 @@ import sys
 import time
 from collections import defaultdict
 
-import httpx
+if len(sys.argv) > 1:
+    os.environ["VISION_MODEL"] = sys.argv[1]
+os.environ.setdefault("OLLAMA_URL", "http://localhost:11434")
+sys.path.insert(0, "backend")
+from app.services import bag_scan  # noqa: E402  (위에서 정한 환경 변수를 읽는다)
 
 ANSWERS = "data/eval/yakbong_answers.csv"
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
-MODEL = sys.argv[1] if len(sys.argv) > 1 else "qwen2.5vl:7b"
-PROMPT = "이 약봉지 사진에 적힌 약 이름만 한 줄에 하나씩 적어줘. 안 보이면 지어내지 말고 '모름'이라고 해."
+MODEL = bag_scan.VISION_MODEL
 
 
 def read_names(path):
     with open(path, "rb") as f:
-        image = base64.b64encode(f.read()).decode()
-    res = httpx.post(f"{OLLAMA_URL}/api/generate", timeout=300, json={
-        "model": MODEL, "prompt": PROMPT, "images": [image], "stream": False,
-        "options": {"temperature": 0, "num_predict": 300},  # 같은 줄을 끝없이 반복할 때가 있어 길이를 제한한다
-    })
-    res.raise_for_status()
-    names = []
-    for line in re.split(r"[\n,]", res.json()["response"]):  # 한 줄에 쉼표로 이어 쓸 때도 있다
-        line = re.sub(r"^\s*(\d+[.)]|[-*•])\s*", "", line).strip()  # 앞의 번호나 기호를 지운다
-        if line and line != "모름" and not line.endswith((":", ".")):  # "약 이름은 다음과 같습니다:" 같은 머리말은 뺀다
-            names.append(line)
-    return names
+        return bag_scan.read_names(base64.b64encode(f.read()).decode())
 
 
 def key(name):
