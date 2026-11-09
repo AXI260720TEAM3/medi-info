@@ -4,6 +4,7 @@ import ErrorMessage from '../components/ErrorMessage'
 import Loading from '../components/Loading'
 import MedCheck from '../components/MedCheck'
 import MedProfile from '../components/MedProfile'
+import MedScan from '../components/MedScan'
 
 // 성분 칸 글자: 불러오는 중, 조회 실패, 정보 없음을 구분해요
 function ingredientText(ingredients, itemSeq) {
@@ -23,6 +24,7 @@ function MyMeds() {
   const [error, setError] = useState('')
   const [deleteError, setDeleteError] = useState('')
   const [checkKey, setCheckKey] = useState(0)
+  const [listKey, setListKey] = useState(0)  // 사진으로 약을 넣으면 바꿔서 목록을 다시 받아요
 
   useEffect(() => {
     fetch('/api/my-meds')
@@ -45,7 +47,12 @@ function MyMeds() {
       .then(res => (res.ok ? res.json() : {}))
       .then(data => setIngredients(data))
       .catch(() => setIngredients({}))
-  }, [])
+  }, [listKey])
+
+  const handleAdded = () => {
+    setListKey(listKey + 1)
+    setCheckKey(checkKey + 1)
+  }
 
   const handleDelete = async (medId) => {
     setDeleteError('')
@@ -71,6 +78,7 @@ function MyMeds() {
   return (<>
     <h1 className="title">내 약</h1>
     {deleteError && <ErrorMessage message={deleteError} />}
+    <MedScan onAdded={handleAdded} />
     {meds.length > 0 && <MedProfile checkKey={checkKey} onChange={() => setCheckKey(checkKey + 1)} />}
     {meds.length >= 2 && <MedCheck key={checkKey} />}
     {meds.length === 0 && <p className="muted">등록한 약이 없어요.</p>}
