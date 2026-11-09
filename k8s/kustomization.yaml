@@ -10,3 +10,4 @@ resources:
   - web.yaml
   - ingress.yaml
   - privacy-cron.yaml
+  - dict-job.yaml

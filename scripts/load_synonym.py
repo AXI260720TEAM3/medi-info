@@ -2,9 +2,13 @@ import csv
 import os
 
 import psycopg
-from dotenv import load_dotenv
 
-load_dotenv()
+# 내 PC에서는 .env를 읽고, k8s Job에서는 Secret이 이미 환경 변수로 들어와 있어서 dotenv가 없어도 돼요
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 with open("data/dict/synonym.csv", encoding="utf-8-sig") as f:
     rows = list(csv.DictReader(f))

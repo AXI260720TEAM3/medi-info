@@ -45,6 +45,13 @@ kubectl -n $NS create secret generic medi-secrets \
 # DB 초기 SQL (compose의 ./db/init)
 kubectl -n $NS create configmap db-init --from-file=db/init \
   --dry-run=client -o yaml | kubectl apply -f -
+# 사전 적재 Job에 넣을 스크립트와 CSV (data/dict/*.csv를 고치면 다음 배포 때 DB에 들어가요)
+kubectl -n $NS create configmap dict-scripts --from-file=scripts/load_dict.py --from-file=scripts/load_synonym.py \
+  --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n $NS create configmap dict-data --from-file=data/dict \
+  --dry-run=client -o yaml | kubectl apply -f -
+# Job은 한 번 끝나면 내용을 바꿀 수 없어서, 옛 것을 지우고 새로 만들어요
+kubectl -n $NS delete job dict-load --ignore-not-found
 
 # 파일에는 :dev라고 적혀 있고, 배포할 때 이번 버전으로 바꿔요. 이름표가 바뀌면 k8s가 새 파드로 하나씩 갈아 끼워요
 kubectl kustomize k8s | sed "s#\(localhost:5000/medi-[a-z]*\):dev#\1:$TAG#" | kubectl apply -f -
@@ -72,6 +79,8 @@ else
 fi
 
 kubectl -n $NS rollout status statefulset/db --timeout=180s
+kubectl -n $NS wait --for=condition=complete job/dict-load --timeout=180s
+kubectl -n $NS logs job/dict-load
 for name in backend web; do
   kubectl -n $NS rollout status deploy/$name --timeout=180s
 done
