@@ -25,6 +25,14 @@ FORM_WORDS = re.compile(r"\(.*?\)|장용과립|장용|과립|미분화|수화물
 NSAID_GROUP = "비스테로이드성 소염제"
 # DUR 효능군 자료에 없는 약도 있어서, 일반의약품에 흔한 소염진통제 성분은 직접 적는다
 NSAID_NAMES = {"이부프로펜", "덱시부프로펜", "나프록센", "아스피린", "케토프로펜", "록소프로펜나트륨"}
+# 종합감기약 속 항히스타민제는 DUR 효능군 자료에 없어서 직접 적는다 (판피린티정의 클로르페니라민)
+# 성분 이름 뒤에 염(말레산염, 염산염)이 붙으므로 이름이 들어 있는지로 본다
+ANTIHISTAMINE_GROUP = "항히스타민제"  # DUR 효능군 자료와 같은 이름 (지르텍정, 알레그라정)
+ANTIHISTAMINE_NAMES = (
+    "클로르페니라민", "트리프롤리딘", "디펜히드라민", "독실아민", "브롬페니라민", "카르비녹사민",
+    "시프로헵타딘", "히드록시진", "메퀴타진", "케토티펜",
+    "세티리진", "로라타딘", "펙소페나딘", "에바스틴", "에피나스틴", "빌라스틴", "루파타딘",
+)
 ACETAMINOPHEN = "아세트아미노펜"
 # 숫자를 코드에 정해 두지 않고, e약은요 원문에 이 문구가 있을 때만 안내한다
 ACETAMINOPHEN_MAX = re.compile(r"일일\s*최대\s*용량\s*\(4,000\s*mg\)")
@@ -85,8 +93,11 @@ def _same_ingredients(ingr_a, ingr_b):
 
 def _groups(effects, ingredients):
     groups = set(effects or ())
-    if any(_clean_name(i["MTRAL_NM"]) in NSAID_NAMES for i in ingredients or []):
+    names = [_clean_name(i["MTRAL_NM"]) for i in ingredients or []]
+    if any(name in NSAID_NAMES for name in names):
         groups.add(NSAID_GROUP)
+    if any(part in name for name in names for part in ANTIHISTAMINE_NAMES):  # 세티리진염산염 -> 세티리진
+        groups.add(ANTIHISTAMINE_GROUP)
     return groups
 
 def _judge(seq_a, seq_b, a, b, show_max_dose=True):
@@ -118,7 +129,7 @@ def _judge(seq_a, seq_b, a, b, show_max_dose=True):
     for group in same_group:
         reasons.append(f"{group} 계열 약이 겹쳐 효과와 부작용이 함께 커질 수 있습니다")
     if same_group:
-        basis.append("식약처 DUR 효능군 · 서비스 소염진통제 목록")
+        basis.append("식약처 DUR 효능군 · 서비스 소염진통제·항히스타민제 목록")
 
     if taboo:
         level = "block"
