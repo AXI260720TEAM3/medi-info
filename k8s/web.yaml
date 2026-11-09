@@ -44,3 +44,14 @@ spec:
               path: /
               port: 8080
             periodSeconds: 5
+          # nginx가 멈췄을 때 다시 켜기
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            periodSeconds: 20
+          # 새 버전으로 바꿀 때 3초 더 버티기 (backend.yaml과 같은 이유)
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 3

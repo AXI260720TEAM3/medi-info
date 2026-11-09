@@ -49,3 +49,27 @@ spec:
             limits:
               cpu: "1"
               memory: 512Mi
+          # 상태 검사 (backend/app/routes/health.py)
+          # 처음 켜질 때(서버가 준비되는 동안)는 이것만 봐요. 통과하기 전엔 아래 두 검사를 하지 않아요
+          startupProbe:
+            httpGet: { path: /api/health/live, port: 8000 }
+            periodSeconds: 2
+            failureThreshold: 30        # 최대 60초 기다려요
+          # 살아 있나: 3번 연속(30초) 응답이 없으면 k8s가 파드를 다시 켜요
+          livenessProbe:
+            httpGet: { path: /api/health/live, port: 8000 }
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          # 손님 받을 준비가 됐나: DB가 안 되면 다시 켜지 않고, 잠깐 요청만 보내지 않아요
+          readinessProbe:
+            httpGet: { path: /api/health/ready, port: 8000 }
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2
+          # 새 버전으로 바꿀 때: 꺼지라는 신호를 받아도 3초 더 버텨요.
+          # 그사이 Traefik이 "이 파드는 빠졌다"를 알아채서, 꺼진 파드로 요청을 보내 502가 나는 일이 없어요
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 3
