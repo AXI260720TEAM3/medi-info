@@ -401,3 +401,10 @@ a.source-chip:hover{
     height: 560px;
   }
 }
+
+.admin-tabs {   /* 관리자 화면 탭 */
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}

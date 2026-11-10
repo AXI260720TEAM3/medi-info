@@ -12,6 +12,7 @@ import Account from './pages/Account'
 import Chat from './pages/Chat'
 import Pharmacy from './pages/Pharmacy'
 import Privacy from './pages/Privacy'
+import Admin from './pages/Admin'
 
 function App(){
   return (
@@ -30,6 +31,7 @@ function App(){
         <Route path="/my-meds" element={<MyMeds />} />
         <Route path="/pharmacy" element={<Pharmacy />} />
         <Route path="/privacy" element={<Privacy />} />
+        <Route path="/admin" element={<Admin />} />
         <Route path="/together" element={<Navigate to="/my-meds" replace />} />
         <Route path="*" element={<ErrorMessage message="없는 페이지예요. 주소를 확인해 주세요." />} />
       </Route>

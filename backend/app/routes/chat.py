@@ -5,8 +5,7 @@ import re
 from typing import Literal
 import logging
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query
-from ..deps import get_current_user
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from ..config import OLLAMA_URL
@@ -1004,29 +1003,3 @@ def ask(data: AskRequest):
         question, analysis["resolved_question"], history_text, drug, risk, category,
     )
     return reply(answer, item_seq, item_name, SOURCE, risk, category)
-
-@router.get("/admin/chat-logs")
-def get_chat_logs(
-    limit: int = Query(50, ge=1, le=100),
-    offset: int = Query(0, ge=0),
-    user: dict = Depends(get_current_user),
-):
-    if user.get("role") != "admin":
-        raise HTTPException(
-            status_code=403,
-            detail="관리자만 볼 수 있어요."
-        )
-
-    with SessionLocal() as db:
-        rows = db.execute(
-            text("""
-                SELECT log_id, question, answer, question_type,
-                       target_item_seq, blocked, block_reason, created_at
-                FROM chat_log
-                ORDER BY log_id DESC
-                LIMIT :limit OFFSET :offset
-            """),
-            {"limit": limit, "offset": offset},
-        ).mappings().all()
-
-    return {"items": [dict(row) for row in rows]}

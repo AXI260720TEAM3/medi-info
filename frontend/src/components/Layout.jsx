@@ -44,6 +44,7 @@ function Layout() {
         </nav>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           {user ? (<>
+            {user.role === 'admin' && <Link to="/admin">관리자</Link>}
             <Link to="/account">{user.display_name}님</Link>
             <button type="button" className="btn btn-secondary" onClick={handleLogout}>로그아웃</button>
           </>) :(
