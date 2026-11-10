@@ -9,3 +9,5 @@ data:
   DB_HOST: db              # 아래 db Service 이름 = 클러스터 안의 주소
   DB_PORT: "5432"
   OLLAMA_URL: http://ollama:11434   # ollama.yaml의 Service (k8s 밖, 이 PC의 Ollama로 연결)
+  OPS_URL: http://ops:8000          # 운영 API (ops.yaml). compose에는 없어서 운영 탭은 k8s에서만 돼요
+  ADMIN_HOSTS: medi.localhost       # 관리자 API를 받는 주소. Funnel 주소로 온 요청은 관리자 API가 없는 척(404)
