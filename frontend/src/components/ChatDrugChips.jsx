@@ -7,7 +7,7 @@ import { baseName } from '../utils/image'
 // - 목록은 이 화면에만 있고 저장하지 않아요 (저장은 내 약에서)
 export const MAX_DRUGS = 10
 
-function ChatDrugChips({ drugs, currentSeq, onSelect, onRemove, onAdd, notice, disabled }) {
+function ChatDrugChips({ drugs, currentSeq, onSelect, onRemove, onAdd, onCheck, notice, disabled }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [results, setResults] = useState(null)
@@ -89,6 +89,11 @@ function ChatDrugChips({ drugs, currentSeq, onSelect, onRemove, onAdd, notice, d
         >
           {open ? '닫기' : '+ 약 추가'}
         </button>
+        {onCheck && drugs.length >= 2 && (
+          <button type="button" className="btn btn-primary drug-chip-add" onClick={onCheck} disabled={disabled}>
+            함께 먹어도 되는지 확인
+          </button>
+        )}
       </div>
 
       {full && <p className="muted" style={{ margin: 0 }}>약은 {MAX_DRUGS}개까지 담을 수 있어요. 하나를 빼면 더 담을 수 있어요.</p>}

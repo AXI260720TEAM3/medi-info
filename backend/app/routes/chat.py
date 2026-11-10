@@ -32,7 +32,7 @@ from ..services.chat_drug import find_chat_drug, get_chat_drug_detail
 from ..services.drug_api import search_by_efcy
 from ..services.drug_search import search_merged
 from ..services.privacy import mask_personal
-from ..services.dur_api import get_ingredients
+from ..services.dur_api import check_interaction, get_ingredients
 from ..services.query_ai import parse_query
 from ..services.search import base_name
 from ..deps import get_optional_user
@@ -96,6 +96,57 @@ def _mentions(item_name: str | None, question: str) -> bool:
 
 def _ref(drug: dict) -> dict:
     return {"item_seq": str(drug["item_seq"]), "item_name": drug.get("item_name") or ""}
+
+
+# ── 함께 먹기 (E안 8번, API 계약 2-3의 4번·4장) ─────────────────────────────
+# 판정은 check_interaction(식약처 DUR)만 해요. AI는 부르지 않고, 답 문장은 판정으로 정해진 문장을 써요
+# (AI가 판정과 어긋나는 말을 할 일이 없고, 카드에 약 짝마다 이유가 따로 나와요)
+TOGETHER_WORDS = re.compile(r"함께|같이|동시에|병용|섞어")
+# "타이레놀이랑 판피린큐액", "A와 B", "A, B"처럼 약 이름을 잇는 말 (약 이름이 둘 이상인 질문을 나눠 찾을 때)
+NAME_JOINERS = re.compile(r"(?:이랑|랑|하고|와|과)\s+|\s*[,/+]\s*|\s+그리고\s+")
+MAX_TOGETHER = 10
+TOGETHER_ANSWERS = {
+    "block": "함께 먹으면 안 되는 조합이 있어요.",
+    "warn": "함께 먹을 때 주의가 필요한 조합이 있어요.",
+    "unknown": "일부 약은 공식 자료가 부족해 확인을 끝내지 못했어요.",
+    "pass": "식약처 자료에서 확인된 병용금기나 성분 겹침은 없어요. 다만 문제가 없다는 뜻은 아니에요.",
+}
+
+
+def _find_drugs_in_parts(question: str, seqs: list[str]) -> tuple[list[dict], list[str]]:
+    """'A랑 B 같이 먹어도 돼요?'를 잇는 말로 나눠 조각마다 약을 찾아요 (조각마다 AI 한 번, 동시에).
+    (찾은 약 목록, 같은 이름 제품이 여럿이라 정하지 못한 이름 목록)"""
+    parts = [p.strip() for p in NAME_JOINERS.split(question) if len(p.strip()) >= 2][:3]
+    if len(parts) < 2:
+        return [], []
+    with ThreadPoolExecutor(max_workers=len(parts)) as pool:
+        results = list(pool.map(_find_named_drug, parts))
+    found, unclear = [], []
+    for result in results:
+        if result.get("status") == "found" and (result.get("drug") or {}).get("item_seq"):
+            found.append(_ref(result["drug"]))
+        elif result.get("status") == "ambiguous":
+            # 후보 중에 이 대화의 약이 있으면 그 약 ("타이레놀" + 목록에 타이레놀정500)
+            in_list = [c for c in result.get("candidates") or [] if str(c.get("item_seq")) in seqs]
+            if in_list:
+                found.append(_ref(in_list[0]))
+            elif result.get("name"):
+                unclear.append(result["name"])
+    return found, unclear
+
+
+def _together_answer(level: str | None, count: int, unclear: list[str]) -> str:
+    text = (
+        f"식약처 DUR 자료로 이 대화의 약 {count}개를 짝마다 확인했어요. "
+        f"{TOGETHER_ANSWERS.get(level or 'pass', TOGETHER_ANSWERS['pass'])} "
+        "약 짝마다 이유를 아래에서 확인하고, 복용 전에 약사와 상의하세요."
+    )
+    if unclear:
+        text += (
+            f"\n('{', '.join(unclear)}'은(는) 같은 이름의 제품이 여러 개라 넣지 못했어요. "
+            "[+ 약 추가]로 정확한 제품을 담은 뒤 다시 물어봐 주세요.)"
+        )
+    return text
 
 
 def recent_history(history: list[ChatTurn]) -> str:
@@ -514,8 +565,8 @@ def ask(data: AskRequest, user: dict | None = Depends(get_optional_user)):
 
     # 지금 약이 바뀌었으면 알리고, 목록에 없던 약이면 화면이 담게 해요 (API 계약 2-2)
     extras["switched"] = item_seq != current_seq
-    if item_seq not in seqs:
-        extras["add_drugs"] = [{"item_seq": item_seq, "item_name": item_name}]
+    if item_seq not in seqs and all(d["item_seq"] != item_seq for d in extras["add_drugs"]):
+        extras["add_drugs"] = extras["add_drugs"] + [{"item_seq": item_seq, "item_name": item_name}]
 
     drug_source = (
         "식품의약품안전처 의약품 제품 허가정보"
@@ -523,18 +574,49 @@ def ask(data: AskRequest, user: dict | None = Depends(get_optional_user)):
         else SOURCE
     )
 
+    # 함께 먹기 질문: 이 대화의 약 + 질문에서 새로 찾은 약을 짝마다 DUR로 판정해 카드로 답해요 (E안 8번)
+    # 나이를 되묻는 것보다 먼저 해요. 함께 먹으면 안 되는 조합은 나이와 상관없이 알려야 해서요
+    if category == "상호작용" or TOGETHER_WORDS.search(question):
+        pool = {d["item_seq"]: d["item_name"] for d in drugs}
+        pool.setdefault(item_seq, item_name)
+        for added in extras["add_drugs"]:
+            pool.setdefault(added["item_seq"], added["item_name"])
+        unclear = []
+        if NAME_JOINERS.search(question):
+            found, unclear = _find_drugs_in_parts(question, seqs)
+            for ref in found:
+                if ref["item_seq"] not in pool and len(pool) < MAX_TOGETHER:
+                    pool[ref["item_seq"]] = ref["item_name"]
+                    if ref["item_seq"] not in seqs:
+                        extras["add_drugs"] = extras["add_drugs"] + [ref]
+        if len(pool) >= 2:
+            try:
+                # 내 약 점검과 같은 규칙: 소아 프로필이면 성인 최대 용량 문장을 빼요
+                results = check_interaction(list(pool)[:MAX_TOGETHER], show_max_dose=profile != "소아")
+            except httpx.HTTPError as exc:
+                raise HTTPException(status_code=503, detail="약 정보 서버가 응답하지 않아요.") from exc
+            for result in results:
+                result["item_name_a"] = pool[result["item_seq_a"]]
+                result["item_name_b"] = pool[result["item_seq_b"]]
+            level = results[0]["level"] if results else None
+            extras["interaction"] = {"level": level, "results": results}
+            extras["switched"] = False   # 약 하나가 아니라 짝을 판정한 답이라 "이제 ○○에 대해…"를 붙이지 않아요
+            return reply(
+                _together_answer(level, min(len(pool), MAX_TOGETHER), unclear),
+                item_seq, item_name, "식품의약품안전처 DUR", risk, "상호작용",
+            )
+
     if risk == "개인 복용 질문" and analysis["action"] == "clarify":
         return reply(
             FOLLOWUPS[analysis["missing"]], item_seq, item_name, "대화 안내", risk,
             category if category != "기타" else None,
         )
 
-    # 개인별 약물 병용 질문은 DUR 대조 없이 AI가 판단하지 않도록 차단 (#94)
-    # TODO(E안 8번): 이 대화의 약이 2개 이상이면 여기서 check_interaction 결과 카드로 답하기
+    # 약이 하나뿐인 개인 병용 질문: DUR 대조 없이 AI가 판단하지 않아요 (#94)
     if risk == "개인 복용 질문" and category == "상호작용":
         return reply(
-            "질문하신 약들을 함께 복용해도 되는지는 "
-            "현재 확인한 정보만으로 판단할 수 없어요. "
+            "함께 먹을 약을 하나 더 담아 주시면 식약처 DUR 자료로 짝마다 확인해 드릴게요. "
+            "질문에 두 약 이름을 함께 쓰거나 [+ 약 추가]로 담을 수 있어요. "
             "복용 여부나 처방을 임의로 변경하지 말고 "
             "의사 또는 약사에게 정확한 약 이름을 알려 확인해 주세요.",
             item_seq,

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import ChatDrugChips, { MAX_DRUGS } from '../components/ChatDrugChips'
 import ChatScan from '../components/ChatScan'
+import MedCheckResult from '../components/MedCheckResult'
 import OpenPharmacies from '../components/OpenPharmacies'
 import { baseName } from '../utils/image'
 
@@ -14,6 +15,14 @@ function initialDrugs() {
   const itemSeq = params.get('itemSeq') || params.get('item_seq')
   const name = params.get('drugName') || params.get('drug_name')
   return itemSeq ? [{ item_seq: itemSeq, item_name: name || itemSeq }] : []
+}
+
+// [함께 먹어도 되는지 확인] 버튼 답 문장 (서버의 함께 먹기 답과 같은 뜻)
+const TOGETHER_TEXT = {
+  block: '함께 먹으면 안 되는 조합이 있어요.',
+  warn: '함께 먹을 때 주의가 필요한 조합이 있어요.',
+  unknown: '일부 약은 공식 자료가 부족해 확인을 끝내지 못했어요.',
+  pass: '식약처 자료에서 확인된 병용금기나 성분 겹침은 없어요. 다만 문제가 없다는 뜻은 아니에요.',
 }
 
 // 목록에 약 담기: 이미 있으면 그대로, 10개가 차면 담지 않아요 (그대로 돌려줘요)
@@ -43,6 +52,26 @@ export default function Chat() {
   const [error, setError] = useState('')
   const bottomRef = useRef(null)
   const requestInFlight = useRef(false)
+
+  // 🔴 자동 알림 (F-028): 담은 약이 2개 이상이면 목록이 바뀔 때마다 판정해서, 함께 먹으면 안 되는 짝만 위에 띄워요
+  // 판정은 로그인 없는 /api/interactions/check (AI 없음, 기록 없음). 결과에 어느 목록의 판정인지(key)를 같이 둬서,
+  // 목록이 바뀐 뒤 늦게 온 예전 결과는 보이지 않게 해요
+  const listKey = drugs.map(d => d.item_seq).sort().join(',')
+  const [band, setBand] = useState({ key: '', answer: null })
+
+  useEffect(() => {
+    if (drugs.length < 2) return
+    let alive = true
+    fetch('/api/interactions/check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ drugs }),
+    })
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => { if (alive && data) setBand({ key: listKey, answer: data }) })
+      .catch(() => {})   // 띠는 덤이에요. 실패하면 띄우지 않고, 버튼으로 다시 확인할 수 있어요
+    return () => { alive = false }
+  }, [drugs, listKey])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
@@ -107,6 +136,7 @@ export default function Chat() {
           items: result.items || [],
           itemsNote: result.items_note || '',
           candidates: result.candidates || null,   // 같은 이름의 약이 여럿: 골라서 다시 묻기
+          interaction: result.interaction || null, // 함께 먹기 판정 (식약처 DUR) → 결과 카드
           question,
         },
       ])
@@ -172,6 +202,41 @@ export default function Chat() {
     if (next && message.question) send(message.question, next, String(candidate.item_seq), false)
   }
 
+  // [함께 먹어도 되는지 확인]: 질문을 쓰지 않아도 담은 약 전부를 바로 판정해요 (AI 없음, 기록 없음)
+  async function checkTogether() {
+    if (drugs.length < 2 || requestInFlight.current) return
+    requestInFlight.current = true
+    setLoading(true)
+    setError('')
+    const label = `담은 약 ${drugs.length}개를 함께 먹어도 되는지 확인해 주세요.`
+    setPendingQuestion(label)
+    try {
+      const res = await fetch('/api/interactions/check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ drugs }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(typeof data.detail === 'string' ? data.detail : '함께 먹기를 확인하지 못했어요.')
+      setMessages(prev => [
+        ...prev,
+        { role: 'user', content: label },
+        {
+          role: 'assistant',
+          content: `식약처 DUR 자료로 약 짝마다 확인했어요. ${TOGETHER_TEXT[data.level] || TOGETHER_TEXT.pass} 복용 전에 약사와 상의하세요.`,
+          source: '식품의약품안전처 DUR',
+          interaction: data,
+        },
+      ])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '함께 먹기를 확인하지 못했어요.')
+    } finally {
+      setPendingQuestion('')
+      setLoading(false)
+      requestInFlight.current = false
+    }
+  }
+
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <header>
@@ -179,12 +244,18 @@ export default function Chat() {
         <p className="muted">질문에 약 이름을 쓰면 아래 목록에 담겨요. 약을 여러 개 담아 두고 골라 가며 물어볼 수 있어요.</p>
       </header>
 
+      {/* 🔴 자동 알림: 묻지 않아도, 함께 먹으면 안 되는 짝만 (🟡는 물었을 때만) */}
+      {drugs.length >= 2 && band.key === listKey && (
+        <MedCheckResult answer={band.answer} levels={['block']} emptyText={null} showCount={false} showNote={false} />
+      )}
+
       <ChatDrugChips
         drugs={drugs}
         currentSeq={currentSeq}
         onSelect={setCurrentSeq}
         onRemove={removeDrug}
         onAdd={addDrug}
+        onCheck={checkTogether}
         notice={chipNotice}
         disabled={loading}
       />
@@ -215,6 +286,13 @@ export default function Chat() {
             )}
 
           <div>{message.content}</div>
+
+          {/* 함께 먹기 판정 카드 (내 약과 같은 부품). 판정은 식약처 DUR, 위 문장은 판정에 맞춰 정해진 안내 */}
+          {message.interaction && (
+            <div style={{ marginTop: 8, whiteSpace: 'normal' }}>
+              <MedCheckResult answer={message.interaction} showNote={false} />
+            </div>
+          )}
 
           {needsPharmacy(message, index === messages.length - 1) && <OpenPharmacies />}
 
