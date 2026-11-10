@@ -5,6 +5,7 @@ import ErrorMessage from '../components/ErrorMessage'
 import AlertBox from '../components/AlertBox'
 import DrugImage from '../components/DrugImage'
 import Badge from '../components/Badge'
+import DurBadges from '../components/DurBadges'
 
 const PAGE_SIZE = 10
 const PAGE_LINKS = 5   // 쪽 번호를 한 번에 몇 개 보여 줄지
@@ -26,9 +27,14 @@ function DrugSearch() {
   const totalPages = Math.ceil(answer.total / PAGE_SIZE)
 
   // AI가 알아들은 것: 약 이름이면 이름 검색, 증상이면 효능 검색
+  // 서버와 같은 순서: 약 이름 → 성분 → 회사 → 증상 (A-1, 11/10)
   const drugName = answer.parsed?.drug_name ?? null
-  const symptom = drugName ? null : (answer.parsed?.symptom ?? null)
-  const found = drugName ?? symptom
+  const ingredient = drugName ? null : (answer.parsed?.ingredient ?? null)
+  const company = drugName || ingredient ? null : (answer.parsed?.company ?? null)
+  const symptom = drugName || ingredient || company ? null : (answer.parsed?.symptom ?? null)
+  const ingredientEn = answer.parsed?.ingredient_en ?? null
+  const ingredientAll = answer.parsed?.ingredient_all ?? 0   // 허가정보 전체 건수 (앞 100건만 받아요)
+  const found = drugName ?? ingredient ?? company ?? symptom
 
   useEffect(() => {
     if (q === '') return
@@ -99,10 +105,19 @@ function DrugSearch() {
       {showResult && found && (
         <p style={{ margin: 0, color: 'var(--text-muted)' }}>
           <strong style={{ color: 'var(--text)' }}>'{found}'</strong>
-          {symptom ? '이(가) 효능에 적힌 약' : ' 검색 결과'} {answer.total}건
+          {ingredient && (ingredientEn ? ` (${ingredientEn}) 성분이 든 약` : ' 성분이 든 약')}
+          {company && ' 회사의 약'}
+          {symptom && '이(가) 효능에 적힌 약'}
+          {drugName && ' 검색 결과'} {answer.total}건
           {totalPages > 1 && ` · ${page} / ${totalPages}쪽`}
           {drugName && answer.total > 0 && ' · 이름이 검색어로 시작하는 약을 먼저 보여드려요'}
         </p>
+      )}
+
+      {showResult && ingredient && ingredientAll > 100 && (
+        <AlertBox type="info" title="앞 100건만 보여 드려요">
+          <p>식약처 허가 목록에 이 성분이 든 약이 {ingredientAll.toLocaleString()}건 있어요. 그중 앞 100건에서 지금 판매 중인 {answer.total}건을 보여 드려요. 찾는 약이 없으면 약 이름으로 검색해 보세요.</p>
+        </AlertBox>
       )}
 
       {showResult && symptom && answer.total > 0 && (
@@ -130,6 +145,7 @@ function DrugSearch() {
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6}}>
                   <Badge type="notice">{drug.etc_otc ?? '일반의약품'}</Badge>
                   {drug.has_easy === false && <Badge type="none">쉬운 설명 없음</Badge>}
+                  <DurBadges itemSeq={drug.item_seq} />
                 </div>
               </div>
               <Link to={`/drugs/${drug.item_seq}`} className="btn btn-secondary">상세 보기</Link>

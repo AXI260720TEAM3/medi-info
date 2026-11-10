@@ -1,13 +1,30 @@
-
 import { useEffect, useState } from 'react'
+import Badge from '../components/Badge'
+
+// 거르기 이름은 서버(routes/admin.py FILTERS)와 같아요
+const FILTERS = [
+  { id: 'all', label: '전체' },
+  { id: 'blocked', label: '차단·안내' },
+  { id: 'unclassified', label: '분류 못 함' },
+  { id: 'reported', label: '신고·도움 안 됨' },
+]
 
 function AdminChatLogs() {
+  const [only, setOnly] = useState('all')
   const [logs, setLogs] = useState([])
+  const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
+  // 거르기를 바꾸면 "불러오는 중"으로 바꾼 뒤 새로 불러요
+  const changeFilter = (value) => {
+    setOnly(value)
+    setLoading(true)
+    setError('')
+  }
+
   useEffect(() => {
-    fetch('/api/admin/chat-logs?limit=50')
+    fetch(`/api/admin/chat-logs?limit=50&only=${only}`)
       .then(async (res) => {
         const data = await res.json()
         if (!res.ok) {
@@ -15,15 +32,24 @@ function AdminChatLogs() {
         }
         return data
       })
-      .then((data) => setLogs(data.items))
+      .then((data) => { setLogs(data.items); setTotal(data.total) })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false))
-  }, [])
+  }, [only])
 
   return (
     <section className="card">
-      <h1 className="title">관리자 질문 기록</h1>
-      <p className="muted">최근 질문 50개를 확인할 수 있어요.</p>
+      <h2>질문 기록</h2>
+      <label>
+        보기{' '}
+        <select value={only} onChange={(e) => changeFilter(e.target.value)}>
+          {FILTERS.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
+        </select>
+      </label>
+      <p className="muted">
+        {loading ? '' : `${total.toLocaleString()}건 중 최근 ${logs.length}건이에요. `}
+        질문은 저장할 때 전화번호 같은 개인정보를 가려 둬요. 90일이 지나면 지워져요.
+      </p>
 
       {loading && <p>기록을 불러오는 중...</p>}
       {error && <p style={{ color: 'var(--danger-text)' }}>{error}</p>}
@@ -39,7 +65,9 @@ function AdminChatLogs() {
         }}>
           <summary style={{ cursor: 'pointer' }}>
             <strong>{log.question}</strong>
-            {log.blocked && <span> · 차단</span>}
+            {' '}
+            {log.blocked && <Badge type="taboo">{log.block_reason === 'redirect' ? '안내' : '차단'}</Badge>}
+            {(log.reported || log.feedback === -1) && <Badge type="caution">신고</Badge>}
           </summary>
 
           <p><strong>답변:</strong> {log.answer || '없음'}</p>

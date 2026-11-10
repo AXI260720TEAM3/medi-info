@@ -401,3 +401,54 @@ a.source-chip:hover{
     height: 560px;
   }
 }
+
+.admin-tabs {   /* 관리자 화면 탭 */
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+/* 관리자 대시보드: 숫자 칸과 날짜별 막대 */
+.admin-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.admin-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.admin-stat strong { font-size: 1.4rem; color: var(--text); }
+.admin-stat .muted { font-size: 0.85rem; }
+.admin-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;                 /* 막대 사이 틈 */
+  height: 160px;
+  padding-top: 20px;        /* 맨 위 숫자 자리 */
+  border-bottom: 1px solid var(--border-strong);
+  overflow-x: auto;
+}
+.admin-bar-col {
+  flex: 1 0 18px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+}
+.admin-bar {
+  width: 70%;
+  max-width: 28px;
+  min-height: 1px;
+  background: var(--primary);
+  border-radius: 4px 4px 0 0;   /* 바닥은 각지게, 위만 둥글게 */
+}
+.admin-bar-value { font-size: 0.75rem; color: var(--text-muted); }
+.admin-bar-label { font-size: 0.7rem; color: var(--text-muted); margin-top: 4px; white-space: nowrap; }

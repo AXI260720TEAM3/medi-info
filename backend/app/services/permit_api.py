@@ -1,5 +1,6 @@
 import html
 import re
+from collections import Counter
 import xml.etree.ElementTree as ET
 
 import httpx
@@ -17,13 +18,26 @@ FIELDS = {
     "SPCLTY_PBLC": "etc_otc",
 }
 
+TIMEOUT = 8   # 한 번에 8초까지, 연결·시간 초과면 한 번 더 (drug_api와 같은 규칙)
+
+
+def _get(url, params):
+    """허가정보 API 부르기. 느리거나 끊기면 한 번만 더 해 봐요"""
+    for attempt in (1, 2):
+        try:
+            return httpx.get(url, params=params, timeout=TIMEOUT)
+        except (httpx.TimeoutException, httpx.ConnectError):
+            if attempt == 2:
+                raise
+
+
 def _rename(item):
     return {ours: item.get(api) for api, ours in FIELDS.items()}
 
 @ttl_cache(3600)
 def search_permit(name):
     params = {"serviceKey": DATA_GO_KR_KEY, "type":"json", "item_name":name, "numOfRows":100}
-    res = httpx.get(URL, params=params, timeout=10)
+    res = _get(URL, params)
     res.raise_for_status()
     items = res.json()["body"].get("items") or []
 
@@ -38,7 +52,7 @@ def search_permit(name):
 def search_withdrawn(name):
     """허가가 취소·취하된 약만 찾는다. 약봉지가 오래되면 지금은 팔지 않는 약이 나올 수 있다."""
     params = {"serviceKey": DATA_GO_KR_KEY, "type": "json", "item_name": name, "numOfRows": 100}
-    res = httpx.get(URL, params=params, timeout=10)
+    res = _get(URL, params)
     res.raise_for_status()
     result = []
     for item in res.json()["body"].get("items") or []:
@@ -50,6 +64,45 @@ def search_withdrawn(name):
                 "cancel_date": f"{date[:4]}-{date[4:6]}-{date[6:8]}" if len(date) == 8 else date,
             })
     return result
+
+
+# 허가정보 목록 API는 성분을 영어 이름(item_ingr_name)으로만 찾아요. 약 이름 괄호에서 못 찾는 성분만 여기에
+INGREDIENT_EN = {
+    "덱스트로메토르판": "Dextromethorphan Hydrobromide",
+    "클로르페니라민": "Chlorpheniramine Maleate",
+    "슈도에페드린": "Pseudoephedrine Hydrochloride",
+    "카페인": "Caffeine",
+}
+
+
+@ttl_cache(3600)
+def english_ingredient(korean):
+    """한글 성분 이름 → 허가정보의 영어 성분 이름. 못 찾으면 None
+    약 이름에 '(아세트아미노펜)'처럼 성분이 괄호로 붙은 단일 성분 약들을 모아, 가장 많이 쓰인 영어 이름을 골라요"""
+    if korean in INGREDIENT_EN:
+        return INGREDIENT_EN[korean]
+    params = {"serviceKey": DATA_GO_KR_KEY, "type": "json", "item_name": korean, "numOfRows": 100}
+    res = _get(URL, params)
+    res.raise_for_status()
+    items = res.json()["body"].get("items") or []
+    names = Counter(
+        item["ITEM_INGR_NAME"] for item in items
+        if f"({korean})" in item.get("ITEM_NAME", "") and str(item.get("ITEM_INGR_CNT")) == "1" and item.get("ITEM_INGR_NAME")
+    )
+    return names.most_common(1)[0][0] if names else None
+
+
+@ttl_cache(3600)
+def search_permit_by(field, value):
+    """허가정보를 성분(item_ingr_name, 영어)이나 회사(entp_name)로 찾기. (허가정보 전체 건수, 앞 100건 중 정상 약)
+    한 번에 100건까지만 받아요. 아세트아미노펜처럼 1,000건이 넘는 성분은 전부 받으면 열 번 넘게 불러야 해서 느려요"""
+    params = {"serviceKey": DATA_GO_KR_KEY, "type": "json", field: value, "numOfRows": 100}
+    res = _get(URL, params)
+    res.raise_for_status()
+    body = res.json()["body"]
+    items = body.get("items") or []
+    return body.get("totalCount") or 0, [_rename(item) for item in items
+            if item.get("CANCEL_NAME") == "정상" and "(수출용)" not in item.get("ITEM_NAME", "")]
 
 
 def _clean(text):
@@ -82,7 +135,7 @@ def doc_to_text(xml):
 def get_permit_detail(item_seq):
     """품목번호로 허가정보 상세를 받아 e약은요와 같은 칸 이름으로 돌려준다. 없으면 None."""
     params = {"serviceKey": DATA_GO_KR_KEY, "type": "json", "item_seq": item_seq}
-    res = httpx.get(DETAIL_URL, params=params, timeout=10)
+    res = _get(DETAIL_URL, params)
     res.raise_for_status()
     items = res.json()["body"].get("items") or []
     if not items:

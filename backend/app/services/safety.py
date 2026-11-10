@@ -6,12 +6,28 @@ from ..database import SessionLocal
 
 # 약을 많이 먹었다는 표현 (띄어쓰기를 지운 질문과 비교). 개월은 나이라서 뺀다
 OVERDOSE_PATTERN = re.compile(
-    r"(\d+|다섯|여섯|일곱|여덟|아홉|열)(알|정|캡슐|개(?!월)|포|병|봉)"
+    r"(\d+|다섯|여섯|일곱|여덟|아홉|열|스무|스물|서른|마흔|쉰|백)(알|정|캡슐|개(?!월)|포|병|봉)"
     r"[을를이나씩도]{0,3}(?:한꺼번에|한번에|다)?(?:먹었|먹어버|먹은것|삼켰|복용했)"
 )
 OVERDOSE_MIN = 5
 PILL_UNITS = ("알", "정", "캡슐")  # 이 단위는 약이 분명하고, 개·병 같은 단위는 약 단어가 있을 때만 본다
 DRUG_WORDS = ("약", "진통제", "해열제", "소화제", "수면제", "영양제", "지사제", "항생제")
+
+# 생후 3개월 미만 아기의 열은 바로 응급실로 가야 한다. 나이는 숫자라서 단어 사전 대신 여기서 본다
+INFANT_AGE_PATTERN = re.compile(r"(\d+|한|두|세)(주|달|개월)")
+KOREAN_COUNTS = {"한": 1, "두": 2, "세": 3}
+BABY_WORDS = ("아기", "애기", "신생아", "생후")
+FEVER_WORDS = ("열이", "열나", "열났", "발열", "고열", "미열")
+
+# '다섯 살 아들'처럼 나이로 말하는 어린이. 12살까지 소아로 본다
+# '서른두 살', '스물한 살'의 두·한은 어린이 나이가 아니어서 앞에 십 단위 말이 붙으면 뺀다
+CHILD_AGE_PATTERN = re.compile(
+    r"(?<!스물)(?<!서른)(?<!마흔)(?<!예순)(?<!일흔)(?<!여든)(?<!아흔)(?<!열)(?<![\d쉰])"
+    r"(\d+|열한|열두|한|두|세|네|다섯|여섯|일곱|여덟|아홉|열)살"
+)
+CHILD_AGES = {"한": 1, "두": 2, "세": 3, "네": 4, "다섯": 5, "여섯": 6, "일곱": 7, "여덟": 8, "아홉": 9,
+              "열": 10, "열한": 11, "열두": 12}
+CHILD_MAX_AGE = 12
 
 # action마다 손님에게 보여 줄 안내
 ACTION_MESSAGES = {
@@ -27,9 +43,10 @@ RECOMMEND_KEYWORDS = [
     "무슨약을", "무슨약먹", "어떤약을", "어떤약이+좋", "어떤게좋",
     "에뭐먹으면", "에뭐먹어야", "약뭐먹", "뭐가좋아",
     "잘듣는약", "골라줘", "좋은약+알려", "좋은약+있",
+    "제뭐먹", "살수있는약", "살수있는+제",  # 진통제 뭐 먹을까, 약국에서 살 수 있는 약(수면제) 있어?
 ]
 # 약 이름을 몰라도 추천 요청으로 보는 넓은 표현. 약이 아닌 것을 추천해 달라는 질문은 뺀다
-RECOMMEND_BROAD_KEYWORDS = ["추천좀", "추천해주세요", "추천해줘"]
+RECOMMEND_BROAD_KEYWORDS = ["추천좀", "추천해주세요", "추천해줘", "뭐사면+좋"]
 NOT_DRUG_WORDS = ["약국", "병원", "음식"]
 RECOMMEND_MESSAGE = "특정 약을 골라 드릴 수는 없습니다. 증상에 쓰는 약의 정보를 보여 드릴 수 있으니, 어떤 약이 맞는지는 약사와 상담해 보세요."
 
@@ -41,6 +58,7 @@ CAUTION_MESSAGES = {
     "노인": "어르신은 약의 영향을 더 크게 받을 수 있으니 약사와 먼저 상담하세요.",
     "복용중": "지금 드시는 약이 있다면 함께 먹어도 되는지 약사와 먼저 확인하세요.",
 }
+PROFILE_TARGETS = ("임부", "소아", "노인")  # 내 약 화면에서 고를 수 있는 프로필 (my_meds.ProfileRequest)
 # AI 답변에 나오면 안 되는 표현 (띄어쓰기를 지운 답변과 비교)
 BANNED_PHRASES = [
     "약을드세요", "드시면됩니다", "추천합니다", "가장좋습니다",  # 약 골라 주기
@@ -78,7 +96,22 @@ def _check_cautions(text: str):
             message = CAUTION_MESSAGES[row["target"]]
             if message not in messages:
                 messages.append(message)
+    age = _child_age(text)
+    if age is not None:
+        matched.append(f"{age}살")
+        if CAUTION_MESSAGES["소아"] not in messages:
+            messages.append(CAUTION_MESSAGES["소아"])
     return matched, " ".join(messages)
+
+
+def _child_age(text: str):
+    """질문에 12살 이하 나이가 있으면 그 나이, 없으면 None."""
+    for match in CHILD_AGE_PATTERN.finditer(text):
+        word = match.group(1)
+        age = int(word) if word.isdigit() else CHILD_AGES[word]
+        if age <= CHILD_MAX_AGE:
+            return age
+    return None
 
 
 def _is_overdose(text: str) -> bool:
@@ -91,7 +124,30 @@ def _is_overdose(text: str) -> bool:
     return False
 
 
-def check_safety(question: str) -> dict:
+def _is_infant_fever(text: str) -> bool:
+    """'생후 두 달 된 아기가 열이 39도' 처럼 3개월 미만 아기의 열인지 본다."""
+    if not any(word in text for word in BABY_WORDS) or not any(word in text for word in FEVER_WORDS):
+        return False
+    for match in INFANT_AGE_PATTERN.finditer(text):
+        count, unit = match.groups()
+        count = int(count) if count.isdigit() else KOREAN_COUNTS[count]
+        if (unit == "주" and count < 13) or (unit in ("달", "개월") and count < 3):
+            return True
+    return False
+
+
+def _add_profile(profile, matched: list, message: str):
+    """내 약 화면에서 고른 프로필(임부·소아·노인)도 주의 대상으로 붙인다. 질문에 '임신'이 없어도 경고가 뜨게."""
+    if profile not in PROFILE_TARGETS:
+        return matched, message
+    profile_message = CAUTION_MESSAGES[profile]
+    if profile_message not in message:
+        message = f"{message} {profile_message}".strip()
+    return matched + [f"프로필:{profile}"], message
+
+
+def check_safety(question: str, profile: str | None = None) -> dict:
+    """profile은 로그인한 사람이 고른 주의 대상('임부'·'소아'·'노인'). 없으면 질문 글자만 본다."""
     text = question.replace(" ", "")
 
     for row in _load_danger_keywords():
@@ -109,7 +165,15 @@ def check_safety(question: str) -> dict:
             "message": ACTION_MESSAGES["119"],
         }
 
+    if _is_infant_fever(text):
+        return {
+            "level": "block",
+            "matched": ["3개월 미만 아기 열"],
+            "message": ACTION_MESSAGES["응급실"],
+        }
+
     caution_matched, caution_message = _check_cautions(text)
+    caution_matched, caution_message = _add_profile(profile, caution_matched, caution_message)
 
     keywords = list(RECOMMEND_KEYWORDS)
     if not any(word in text for word in NOT_DRUG_WORDS):
