@@ -8,6 +8,13 @@ def get_current_user(access_token: str | None = Cookie(default=None)):
         raise HTTPException(status_code=401, detail="로그인이 필요해요.")
     return user
 
+def require_admin(user: dict = Depends(get_current_user)):
+    """관리자 화면(H)용: 로그인했고 role이 admin인 사람만 통과. 아니면 403"""
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="관리자만 볼 수 있어요.")
+    return user
+
+
 def require_health_consent(user: dict = Depends(get_current_user)):
     if not user["agree_health"]:
         raise HTTPException(status_code=403, detail="건강정보 수집에 동의해야 쓸 수 있어요.")

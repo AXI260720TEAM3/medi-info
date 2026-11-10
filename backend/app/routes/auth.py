@@ -85,6 +85,10 @@ class DeleteAccountRequest(BaseModel):
 
 @router.delete("/me")
 def delete_me(data: DeleteAccountRequest, response: Response, user: dict = Depends(get_current_user)):
+    # 관리자는 바로 탈퇴할 수 없어요: 관리자가 0명이 되면 화면으로는 아무도 관리자 화면에 못 들어가요
+    # 관리자 권한을 먼저 해제(DB에서 role을 user로)한 뒤 탈퇴해요
+    if user["role"] == "admin":
+        raise HTTPException(status_code=409, detail="관리자 계정은 바로 탈퇴할 수 없어요. 관리자 권한을 먼저 해제해 주세요.")
     if not delete_user(user["user_id"], data.password):
         raise HTTPException(status_code=400, detail="비밀번호가 맞지 않아요.")
     response.delete_cookie(COOKIE_NAME)
