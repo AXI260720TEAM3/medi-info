@@ -124,6 +124,7 @@ Ollama는 검사하지 않아요. AI가 꺼져도 검색·약국·내 약은 돼
 | 증상 | 원인과 해결 |
 |---|---|
 | AI 질문이 한참 걸린 뒤 500 (`NoResultFound`) | 사전이 비어 있음. `kubectl -n medi-info logs job/dict-load`로 적재 결과 확인, 없으면 `bash k8s/deploy.sh` |
+| 모든 주소가 응답 없음(시간 초과), traefik이 `CrashLoopBackOff` | 와이파이 주소가 바뀜 (k3s는 켤 때 주소를 한 번 읽어요). `kubectl get node -o wide`의 INTERNAL-IP가 `ip -4 addr`의 지금 주소와 다르면 `sudo systemctl restart k3s` |
 | 약 검색·약국이 "서버가 응답하지 않아요" | 파드가 인터넷에 못 나감. `sudo bash k8s/cluster/wsl-masquerade.sh` (WSL 미러 네트워크가 flannel의 무작위 포트 답장을 버려요) |
 | `http://medi.localhost`가 안 열림 | `kubectl -n kube-system get pods`에서 traefik이 Running인지, `traefik-config.yaml`을 적용했는지 |
 | 배포했는데 `ImagePullBackOff` | `docker start registry`, `registries.yaml`을 넣고 k3s를 다시 켰는지 |

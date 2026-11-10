@@ -4,6 +4,7 @@ import xml.etree.ElementTree as ET
 
 import httpx
 from ..config import DATA_GO_KR_KEY
+from .api_cache import ttl_cache
 
 URL = "https://apis.data.go.kr/1471000/DrugPrdtPrmsnInfoService08/getDrugPrdtPrmsnInq08"
 DETAIL_URL = "https://apis.data.go.kr/1471000/DrugPrdtPrmsnInfoService08/getDrugPrdtPrmsnDtlInq08"
@@ -19,6 +20,7 @@ FIELDS = {
 def _rename(item):
     return {ours: item.get(api) for api, ours in FIELDS.items()}
 
+@ttl_cache(3600)
 def search_permit(name):
     params = {"serviceKey": DATA_GO_KR_KEY, "type":"json", "item_name":name, "numOfRows":100}
     res = httpx.get(URL, params=params, timeout=10)
@@ -76,6 +78,7 @@ def doc_to_text(xml):
     return "\n".join(lines)
 
 
+@ttl_cache(3600)
 def get_permit_detail(item_seq):
     """품목번호로 허가정보 상세를 받아 e약은요와 같은 칸 이름으로 돌려준다. 없으면 None."""
     params = {"serviceKey": DATA_GO_KR_KEY, "type": "json", "item_seq": item_seq}
