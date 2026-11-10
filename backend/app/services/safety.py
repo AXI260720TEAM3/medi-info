@@ -6,12 +6,18 @@ from ..database import SessionLocal
 
 # 약을 많이 먹었다는 표현 (띄어쓰기를 지운 질문과 비교). 개월은 나이라서 뺀다
 OVERDOSE_PATTERN = re.compile(
-    r"(\d+|다섯|여섯|일곱|여덟|아홉|열)(알|정|캡슐|개(?!월)|포|병|봉)"
+    r"(\d+|다섯|여섯|일곱|여덟|아홉|열|스무|스물|서른|마흔|쉰|백)(알|정|캡슐|개(?!월)|포|병|봉)"
     r"[을를이나씩도]{0,3}(?:한꺼번에|한번에|다)?(?:먹었|먹어버|먹은것|삼켰|복용했)"
 )
 OVERDOSE_MIN = 5
 PILL_UNITS = ("알", "정", "캡슐")  # 이 단위는 약이 분명하고, 개·병 같은 단위는 약 단어가 있을 때만 본다
 DRUG_WORDS = ("약", "진통제", "해열제", "소화제", "수면제", "영양제", "지사제", "항생제")
+
+# 생후 3개월 미만 아기의 열은 바로 응급실로 가야 한다. 나이는 숫자라서 단어 사전 대신 여기서 본다
+INFANT_AGE_PATTERN = re.compile(r"(\d+|한|두|세)(주|달|개월)")
+KOREAN_COUNTS = {"한": 1, "두": 2, "세": 3}
+BABY_WORDS = ("아기", "애기", "신생아", "생후")
+FEVER_WORDS = ("열이", "열나", "열났", "발열", "고열", "미열")
 
 # action마다 손님에게 보여 줄 안내
 ACTION_MESSAGES = {
@@ -91,6 +97,18 @@ def _is_overdose(text: str) -> bool:
     return False
 
 
+def _is_infant_fever(text: str) -> bool:
+    """'생후 두 달 된 아기가 열이 39도' 처럼 3개월 미만 아기의 열인지 본다."""
+    if not any(word in text for word in BABY_WORDS) or not any(word in text for word in FEVER_WORDS):
+        return False
+    for match in INFANT_AGE_PATTERN.finditer(text):
+        count, unit = match.groups()
+        count = int(count) if count.isdigit() else KOREAN_COUNTS[count]
+        if (unit == "주" and count < 13) or (unit in ("달", "개월") and count < 3):
+            return True
+    return False
+
+
 def check_safety(question: str) -> dict:
     text = question.replace(" ", "")
 
@@ -107,6 +125,13 @@ def check_safety(question: str) -> dict:
             "level": "block",
             "matched": ["과다복용 숫자"],
             "message": ACTION_MESSAGES["119"],
+        }
+
+    if _is_infant_fever(text):
+        return {
+            "level": "block",
+            "matched": ["3개월 미만 아기 열"],
+            "message": ACTION_MESSAGES["응급실"],
         }
 
     caution_matched, caution_message = _check_cautions(text)
