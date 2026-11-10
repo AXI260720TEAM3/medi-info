@@ -5,6 +5,7 @@ import re
 from typing import Literal
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -14,7 +15,7 @@ from ..services.drug_api import get_by_seq, search_by_efcy, search_by_name
 from ..services.privacy import mask_personal
 from ..services.dur_api import get_ingredients
 from ..services.query_ai import parse_query
-from ..services.search import find_drug
+from ..services.search import base_name, find_drug
 from ..deps import get_optional_user
 from ..services.my_meds import get_profile
 from ..services.safety import check_safety, add_disclaimer, find_banned
@@ -91,11 +92,35 @@ class ChatTurn(BaseModel):
     content: str = Field(min_length=1, max_length=700)
 
 
+class DrugRef(BaseModel):
+    """약 하나 (API 계약 1장). item_seq는 글자로 (앞자리 0이 사라지지 않게)"""
+    item_seq: str = Field(min_length=1, max_length=20)
+    item_name: str = Field(default="", max_length=200)
+
+
 class AskRequest(BaseModel):
     question: str = Field(min_length=1, max_length=1000)
+    # 옛 화면: 약 하나. drugs가 비어 있으면 약 하나짜리 목록으로 바꿔 받아요 (계약 7장 5단계에서 지움)
     drug_name: str | None = None
     item_seq: str | None = None
     history: list[ChatTurn] = Field(default_factory=list, max_length=20)
+    # E안 (11/10): 이 대화의 약과 지금 약(●). 목록의 주인은 화면이고, 서버는 저장하지 않아요
+    drugs: list[DrugRef] = Field(default_factory=list, max_length=10)
+    current_seq: str | None = None
+
+
+def _find_named_drug(question: str) -> dict:
+    """질문에 적힌 약 이름을 코드가 먼저 찾아요 (find_drug: 약 이름 정리 → e약은요 이름 검색).
+    AI 서버나 약 정보 서버가 안 되면 '못 찾음'으로 두고 AI 분석 흐름에 맡겨요"""
+    try:
+        result = find_drug(question)
+    except (httpx.HTTPError, ValueError, KeyError):
+        return {"status": "none"}
+    return result if isinstance(result, dict) else {"status": "none"}
+
+
+def _ref(drug: dict) -> dict:
+    return {"item_seq": str(drug["item_seq"]), "item_name": drug.get("item_name") or ""}
 
 
 def recent_history(history: list[ChatTurn]) -> str:
@@ -686,6 +711,18 @@ def ask(data: AskRequest, user: dict | None = Depends(get_optional_user)):
     if not question:
         raise HTTPException(status_code=422, detail="질문을 입력해 주세요.")
 
+    # 이 대화의 약 (API 계약 2-1). 옛 화면의 item_seq는 약 하나짜리 목록으로 바꿔요
+    drugs = [d.model_dump() for d in data.drugs]
+    if not drugs and data.item_seq:
+        drugs = [{"item_seq": data.item_seq, "item_name": data.drug_name or ""}]
+    seqs = [d["item_seq"] for d in drugs]
+    current_seq = data.current_seq if data.current_seq in seqs else None
+    if current_seq is None and data.item_seq in seqs:
+        current_seq = data.item_seq
+
+    # 응답에 더하는 칸 (API 계약 2-2). 아래에서 약을 정하면서 채워요
+    extras = {"current_seq": None, "switched": False, "add_drugs": [], "candidates": None, "interaction": None}
+
     # 위험 사전은 외부 DB 조회. 실패 시 안전 검사를 건너뛰지 않습니다.
     # 로그인하고 건강정보에 동의한 사람은 내 약 화면에서 고른 프로필(임부·소아·노인)도 안전 검사에 넣습니다.
     try:
@@ -703,7 +740,13 @@ def ask(data: AskRequest, user: dict | None = Depends(get_optional_user)):
         )
 
     def reply(*args, **kwargs):
-        result = make_reply(*args, **kwargs)
+        result = {**make_reply(*args, **kwargs), **extras}
+        if result.get("item_seq"):
+            result["current_seq"] = result["item_seq"]   # 이번 답의 기준 약이 곧 지금 약(●)
+
+        # 지금 약이 바뀌었으면 첫 줄에 알려요 (사용자가 다른 약 이야기로 착각하지 않게)
+        if extras["switched"] and result.get("item_name"):
+            result["answer"] = f"이제 {base_name(result['item_name'])}에 대해 답할게요.\n\n{result['answer']}"
 
         if level == "warn" and safety.get("message"):
             result["answer"] += "\n\n" + safety["message"]
@@ -713,11 +756,11 @@ def ask(data: AskRequest, user: dict | None = Depends(get_optional_user)):
         return result
     
     def emergency_reply(answer: str, source: str | None = None):
-        result = make_reply(
+        result = {**make_reply(
             answer,
             source=source,
             risk="위험 상황",
-        )
+        ), **extras}
 
         try:
             save_chat_log(question, result, "block", round((time.monotonic() - started) * 1000))
@@ -753,9 +796,9 @@ def ask(data: AskRequest, user: dict | None = Depends(get_optional_user)):
     selected_drug = None
     selected_item_name = None
 
-    if data.item_seq:
+    if current_seq:
         try:
-            selected_drug = get_by_seq(data.item_seq)
+            selected_drug = get_by_seq(current_seq)
         except httpx.HTTPError as exc:
             raise HTTPException(
                 status_code=503,
@@ -777,13 +820,18 @@ def ask(data: AskRequest, user: dict | None = Depends(get_optional_user)):
         selected_item_name = selected_drug.get("item_name")
 
     history_text = recent_history(data.history)
-    analysis = analyze_question(
-        question,
-        history_text,
-        data.item_seq,
-        data.drug_name,
-        selected_item_name,
-    )
+    # 질문 속 약 이름은 코드가 먼저 찾아요 (11/10: 약을 고르지 않으면 AI가 keep을 골라 제품명 질문도 막혔음)
+    # find_drug도 AI를 한 번 부르니까, AI 분석과 동시에 시작해서 기다리는 시간을 줄여요
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        named_future = pool.submit(_find_named_drug, question)
+        analysis = analyze_question(
+            question,
+            history_text,
+            current_seq,
+            None if current_seq else data.drug_name,
+            selected_item_name,
+        )
+        named = named_future.result()
     risk, category = analysis["risk"], analysis["category"]
     if risk == "위험 상황":
         return emergency_reply(
@@ -818,7 +866,7 @@ def ask(data: AskRequest, user: dict | None = Depends(get_optional_user)):
             analysis["missing"] = "age"
 
     # 약 검색/선택 API는 기존 계약 유지; 선택된 약이 있어야 개인별 공식 정보 설명 가능.
-    if data.drug_name and not data.item_seq:
+    if data.drug_name and not data.item_seq and not drugs:
         try:
             total, items = search_by_name(data.drug_name)
         except httpx.HTTPError as exc:
@@ -833,12 +881,39 @@ def ask(data: AskRequest, user: dict | None = Depends(get_optional_user)):
         return result
 
     
-    # 약 유지·변경·확인 필요 여부 결정
+    # 코드가 질문에서 찾은 약을 AI의 keep/switch보다 먼저 써요 (API 계약 2-3)
+    target_item_seq = None
+    named_status = named.get("status")
+    if named_status == "found" and (named.get("drug") or {}).get("item_seq"):
+        target_item_seq = str(named["drug"]["item_seq"])
+    elif named_status == "ambiguous":
+        candidates = named.get("candidates") or []
+        # 후보 중에 이 대화의 약이 있으면 그 약 (지금 약이 먼저): ● 타이레놀정500 + "타이레놀 하루 몇 번?"
+        in_list = [c for c in candidates if str(c.get("item_seq")) in seqs]
+        pick = next((c for c in in_list if str(c["item_seq"]) == current_seq), in_list[0] if in_list else None)
+        if pick:
+            target_item_seq = str(pick["item_seq"])
+        else:
+            extras["candidates"] = [_ref(c) for c in candidates]
+            result = reply("같은 이름의 약이 여러 개예요. 어느 약인지 골라 주세요.", risk=risk)
+            # 옛 화면용 목록 (계약 7장 5단계에서 지움)
+            result["total"] = len(candidates)
+            result["items"] = candidates
+            result["items_note"] = "같은 이름으로 여러 제품이 검색됐어요. 아래 목록에서 정확한 제품을 확인해 주세요."
+            return result
+    elif named_status == "none" and named.get("name") and not current_seq:
+        # 약 이름을 적었는데 찾지 못했고, 대신 답할 지금 약도 없음
+        return reply(
+            "질문에서 정확한 의약품을 찾지 못했어요. 약 이름을 확인하거나 검색에서 제품을 선택해 주세요.",
+            risk=risk,
+        )
+
+    # 코드가 못 찾았을 때만 AI의 약 유지·변경·확인 판단을 써요
     drug_action = analysis["drug_action"]
 
-    if drug_action == "clarify" or (
-        drug_action == "keep" and not data.item_seq
-    ):
+    if target_item_seq is None and (drug_action == "clarify" or (
+        drug_action == "keep" and not current_seq
+    )):
         return reply(
             "어떤 약에 대한 질문인지 확인이 필요해요. "
             "정확한 제품명을 알려주시거나 제품을 선택해 주세요.",
@@ -846,9 +921,8 @@ def ask(data: AskRequest, user: dict | None = Depends(get_optional_user)):
         )
 
     # 기존 약 유지 또는 새로운 약 검색
-    target_item_seq = (
-        data.item_seq if drug_action == "keep" else None
-    )
+    if target_item_seq is None and drug_action == "keep":
+        target_item_seq = current_seq
 
     if not target_item_seq:
         try:
@@ -883,6 +957,7 @@ def ask(data: AskRequest, user: dict | None = Depends(get_optional_user)):
 
         elif status == "ambiguous":
             items = search_result.get("candidates") or []
+            extras["candidates"] = [_ref(c) for c in items]
             result = reply(
                 "검색된 약 중 정확한 제품을 선택해 주세요.",
                 risk=risk,
@@ -911,7 +986,7 @@ def ask(data: AskRequest, user: dict | None = Depends(get_optional_user)):
     # 최종 선택된 약의 공식 정보 확인
     if (
         selected_drug is not None
-        and target_item_seq == str(data.item_seq)
+        and target_item_seq == str(current_seq)
     ):
         drug = selected_drug
     else:
@@ -938,6 +1013,11 @@ def ask(data: AskRequest, user: dict | None = Depends(get_optional_user)):
     item_seq = str(drug.get("item_seq") or target_item_seq)
     item_name = drug.get("item_name") or "선택된 의약품"
     drug = {**drug, "item_seq": item_seq, "item_name": item_name}
+
+    # 지금 약이 바뀌었으면 알리고, 목록에 없던 약이면 화면이 담게 해요 (API 계약 2-2)
+    extras["switched"] = item_seq != current_seq
+    if item_seq not in seqs:
+        extras["add_drugs"] = [{"item_seq": item_seq, "item_name": item_name}]
 
     if risk == "개인 복용 질문" and analysis["action"] == "clarify":
         return reply(
