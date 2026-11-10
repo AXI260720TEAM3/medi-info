@@ -4,6 +4,7 @@ import json
 import re
 from typing import Literal
 import logging
+import time
 import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -374,7 +375,7 @@ def make_reply(
         result["category"] = category
     return result
 
-def save_chat_log(question: str, result: dict, level: str):
+def save_chat_log(question: str, result: dict, level: str, response_ms: int | None = None):
     blocked = level in ("block", "redirect") or result.get("risk") == "위험 상황"
 
     if blocked:
@@ -390,9 +391,9 @@ def save_chat_log(question: str, result: dict, level: str):
         db.execute(
             text("""
                 INSERT INTO chat_log
-                (question, answer, question_type, target_item_seq, blocked, block_reason)
+                (question, answer, question_type, target_item_seq, blocked, block_reason, response_ms)
                 VALUES
-                (:question, :answer, :question_type, :item_seq, :blocked, :block_reason)
+                (:question, :answer, :question_type, :item_seq, :blocked, :block_reason, :response_ms)
             """),
             {
                 "question": mask_personal(question),   # 개인정보 모양은 가려서 저장 (I-7)
@@ -401,6 +402,7 @@ def save_chat_log(question: str, result: dict, level: str):
                 "item_seq": result.get("item_seq"),
                 "blocked": blocked,
                 "block_reason": level if blocked else None,
+                "response_ms": response_ms,   # 질문을 받은 때부터 답을 만들 때까지 (관리자 대시보드 H-4)
             },
         )
         db.commit()
@@ -677,6 +679,7 @@ def redirect_drugs(question: str) -> list[dict]:
 
 @router.post("/ask")
 def ask(data: AskRequest):
+    started = time.monotonic()
     question = data.question.strip()
     if not question:
         raise HTTPException(status_code=422, detail="질문을 입력해 주세요.")
@@ -702,7 +705,7 @@ def ask(data: AskRequest):
             result["answer"] += "\n\n" + safety["message"]
 
         result["answer"] = add_disclaimer(result["answer"])
-        save_chat_log(question, result, level)
+        save_chat_log(question, result, level, round((time.monotonic() - started) * 1000))
         return result
     
     def emergency_reply(answer: str, source: str | None = None):
@@ -713,7 +716,7 @@ def ask(data: AskRequest):
         )
 
         try:
-            save_chat_log(question, result, "block")
+            save_chat_log(question, result, "block", round((time.monotonic() - started) * 1000))
         except Exception:
             logging.exception("응급 질문 기록 저장 실패")
 
