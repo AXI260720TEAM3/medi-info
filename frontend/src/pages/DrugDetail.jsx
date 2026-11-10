@@ -4,6 +4,7 @@ import Loading from '../components/Loading'
 import ErrorMessage from '../components/ErrorMessage'
 import AlertBox from '../components/AlertBox'
 import Badge from '../components/Badge'
+import DurBadges from '../components/DurBadges'
 import SourceChip from '../components/SourceChip'
 import DrugImage from '../components/DrugImage'
 
@@ -106,6 +107,7 @@ function DrugDetail() {
                 <span className="muted">{drug.entp_name}</span>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                   <Badge type="notice">{drug.etc_otc ?? '일반의약품'}</Badge>
+                  <DurBadges itemSeq={itemSeq} />
                   {ingredientsLoading && <span className="muted">성분을 확인하는 중이에요</span>}
                   {!ingredientsLoading && ingredients.error && <span className="muted">성분 정보를 불러오지 못했어요</span>}
                   {!ingredientsLoading && ingredients.names?.length === 0 && <Badge type="none">성분 정보 없음</Badge>}
