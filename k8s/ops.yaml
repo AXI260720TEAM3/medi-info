@@ -1,0 +1,131 @@
+# 운영 API (기능명세 H-5): 관리자 화면 운영 탭이 백엔드를 거쳐 불러요 (ops/app/main.py)
+# k8s 권한은 이 파드만 가져요. 손님을 받는 백엔드는 k8s 권한이 없어서, 백엔드가 뚫려도 k8s를 직접 만질 수 없어요
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ops
+  namespace: medi-info
+---
+# 이 이름공간 안에서 할 수 있는 일. Secret 읽기, 파드 안에서 명령 실행(exec), 지우기는 없어요
+# 주의: Job 만들기는 k8s에서 이름으로 제한할 수 없어요. 이 계정을 훔치면 아무 Job이나 만들 수 있어요
+#       (Job은 Secret을 붙일 수 있어서 사실상 Secret을 읽는 것과 같아요)
+#       그래서 ① 코드는 dict-load 설계도만 복사하고 ② 백엔드만 들어올 수 있고(NetworkPolicy) ③ 토큰이 있어야 해요
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ops
+  namespace: medi-info
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list]
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets]
+    verbs: [get, list]
+  - apiGroups: [apps]
+    resources: [deployments]
+    resourceNames: [backend, web]     # 다시 시작은 이 둘만 (db·ops는 안 돼요)
+    verbs: [patch]
+  - apiGroups: [batch]
+    resources: [cronjobs, jobs]
+    verbs: [get, list]
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ops
+  namespace: medi-info
+subjects:
+  - kind: ServiceAccount
+    name: ops
+    namespace: medi-info
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ops
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ops
+  namespace: medi-info
+spec:
+  selector:
+    app: ops
+  ports:
+    - port: 8000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ops
+  namespace: medi-info
+spec:
+  replicas: 1
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app: ops
+  template:
+    metadata:
+      labels:
+        app: ops
+    spec:
+      serviceAccountName: ops
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: ops
+          image: localhost:5000/medi-ops:dev   # deploy.sh가 :dev를 그때 버전으로 바꿔요
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          env:
+            - name: OPS_TOKEN              # 백엔드와 나눠 갖는 열쇠. deploy.sh가 처음 한 번 만들어요
+              valueFrom:
+                secretKeyRef: { name: ops-token, key: token }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 20m
+              memory: 48Mi
+            limits:
+              cpu: 300m
+              memory: 128Mi
+          livenessProbe:
+            httpGet: { path: /live, port: 8000 }
+            periodSeconds: 20
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet: { path: /live, port: 8000 }
+            periodSeconds: 10
+            timeoutSeconds: 3
+---
+# 운영 API에는 백엔드 파드만 들어올 수 있어요 (같은 클러스터의 다른 파드, automachine 등은 막혀요)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ops-from-backend
+  namespace: medi-info
+spec:
+  podSelector:
+    matchLabels:
+      app: ops
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: backend
+      ports:
+        - port: 8000

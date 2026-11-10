@@ -27,7 +27,8 @@ docker start registry >/dev/null
 KAKAO=$(sed -n 's/^VITE_KAKAO_MAP_KEY=//p' frontend/.env.local 2>/dev/null | tr -d '\r' || true)
 docker build -q -t $REGISTRY/medi-backend:$TAG backend
 docker build -q -t $REGISTRY/medi-web:$TAG -f frontend/Dockerfile.prod --build-arg VITE_KAKAO_MAP_KEY="$KAKAO" frontend
-for name in backend web; do
+docker build -q -t $REGISTRY/medi-ops:$TAG ops
+for name in backend web ops; do
   docker push -q $REGISTRY/medi-$name:$TAG
 done
 [ "${1:-}" = images ] && exit 0
@@ -42,6 +43,11 @@ kubectl -n $NS create secret generic medi-secrets \
   --from-literal=DATA_GO_KR_KEY="$DATA_GO_KR_KEY" --from-literal=JWT_SECRET="$JWT_SECRET" \
   --from-literal=SMTP_USER="${SMTP_USER:-}" --from-literal=SMTP_PASS="${SMTP_PASS:-}" \
   --dry-run=client -o yaml | kubectl apply -f -
+# 운영 API 열쇠 (백엔드 → ops). 처음 한 번만 무작위로 만들고, 화면에도 파일에도 남기지 않아요
+if ! kubectl -n $NS get secret ops-token >/dev/null 2>&1; then
+  kubectl -n $NS create secret generic ops-token \
+    --from-literal=token="$(python3 -c 'import secrets; print(secrets.token_hex(32))')" >/dev/null
+fi
 # DB 초기 SQL (compose의 ./db/init)
 kubectl -n $NS create configmap db-init --from-file=db/init \
   --dry-run=client -o yaml | kubectl apply -f -
@@ -55,7 +61,9 @@ kubectl -n $NS delete job dict-load --ignore-not-found
 
 # 파일에는 :dev라고 적혀 있고, 배포할 때 이번 버전으로 바꿔요. 이름표가 바뀌면 k8s가 새 파드로 하나씩 갈아 끼워요
 kubectl kustomize k8s | sed "s#\(localhost:5000/medi-[a-z]*\):dev#\1:$TAG#" | kubectl apply -f -
-kubectl -n $NS annotate deploy backend web kubernetes.io/change-cause="$TAG" --overwrite
+kubectl -n $NS annotate deploy backend web ops kubernetes.io/change-cause="$TAG" --overwrite
+# 사전 적재: 멈춰 둔 CronJob 설계도로 이번 배포의 Job을 만들어요 (dict-job.yaml)
+kubectl -n $NS create job dict-load --from=cronjob/dict-load
 
 # Tailscale Funnel 주소(https://○○.ts.net)로도 받기. 이 PC 전용이라 .env의 FUNNEL_HOST가 있을 때만 만들어요
 # (ingress.yaml에 주소를 적으면 팀원 PC에선 쓸모없고, Tailscale 주소가 저장소에 남아요)
@@ -81,7 +89,7 @@ fi
 kubectl -n $NS rollout status statefulset/db --timeout=180s
 kubectl -n $NS wait --for=condition=complete job/dict-load --timeout=180s
 kubectl -n $NS logs job/dict-load
-for name in backend web; do
+for name in backend web ops; do
   kubectl -n $NS rollout status deploy/$name --timeout=180s
 done
 echo "열기: http://medi.localhost"

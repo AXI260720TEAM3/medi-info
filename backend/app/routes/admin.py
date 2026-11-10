@@ -1,3 +1,4 @@
+import logging
 import time
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -5,19 +6,20 @@ from typing import Literal
 
 import httpx
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
-from ..config import OLLAMA_URL
+from ..config import OLLAMA_URL, OPS_TOKEN, OPS_URL
 from ..database import SessionLocal
-from ..deps import require_admin
+from ..deps import admin_host_only, require_admin
 from ..services.safety import check_safety
 from ..services.synonym import find_symptom
 
 # 관리자 화면 (기능명세 H). 모든 주소가 /api/admin/... 이고, 관리자(role=admin)만 쓸 수 있어요
 # 라우터 전체에 require_admin을 걸어서, 새 주소를 추가해도 확인을 빼먹지 않아요
-router = APIRouter(prefix="/api/admin", tags=["admin"], dependencies=[Depends(require_admin)])
+# 주소 확인을 먼저: Funnel로 온 요청은 로그인 여부와 상관없이 404 (관리자 API가 있다는 것도 알리지 않아요)
+router = APIRouter(prefix="/api/admin", tags=["admin"], dependencies=[Depends(admin_host_only), Depends(require_admin)])
 
 # 질문 기록 거르기: 화면의 선택 상자와 같은 이름
 FILTERS = {
@@ -157,3 +159,35 @@ def dashboard(days: int = Query(7, ge=1, le=90)):
         "response": {k: (int(v) if v is not None else None) for k, v in response.items()},
         "dict_counts": dict_counts,
     }
+
+
+# H-5 운영: k8s 권한은 백엔드가 아니라 운영 API(ops 파드)에 있어요. 백엔드는 관리자 확인 뒤 넘겨주기만 해요
+def _ops(method, path):
+    if not OPS_URL:
+        raise HTTPException(status_code=503, detail="운영 탭은 k8s에서 실행할 때만 쓸 수 있어요. 지금은 compose예요.")
+    try:
+        res = httpx.request(method, f"{OPS_URL}{path}", headers={"X-Ops-Token": OPS_TOKEN}, timeout=10)
+    except httpx.HTTPError:
+        raise HTTPException(status_code=503, detail="운영 API에 연결하지 못했어요. ops 파드를 확인해 주세요.")
+    body = res.json() if res.headers.get("content-type", "").startswith("application/json") else {}
+    if res.status_code >= 400:
+        raise HTTPException(status_code=502 if res.status_code >= 500 else res.status_code,
+                            detail=body.get("detail") or "운영 API가 거절했어요.")
+    return body
+
+
+@router.get("/ops/status")
+def ops_status():
+    return _ops("GET", "/status")
+
+
+@router.post("/ops/restart/{name}")
+def ops_restart(name: Literal["backend", "web"], user: dict = Depends(require_admin)):
+    logging.warning("관리자 %s: %s 다시 시작", user["login_id"], name)   # 누가 했는지 남겨요
+    return _ops("POST", f"/restart/{name}")
+
+
+@router.post("/ops/dict-reload")
+def ops_dict_reload(user: dict = Depends(require_admin)):
+    logging.warning("관리자 %s: 사전 다시 적재", user["login_id"])
+    return _ops("POST", "/dict-reload")

@@ -42,6 +42,10 @@ spec:
                 name: backend-config
             - secretRef:
                 name: medi-secrets
+          env:
+            - name: OPS_TOKEN              # 운영 API(ops)에 보내는 열쇠. deploy.sh가 처음 한 번 만들어요
+              valueFrom:
+                secretKeyRef: { name: ops-token, key: token }
           resources:
             requests:
               cpu: 100m
