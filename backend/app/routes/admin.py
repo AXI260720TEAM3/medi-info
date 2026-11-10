@@ -1,9 +1,15 @@
+import time
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from typing import Literal
+
+import httpx
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
+from ..config import OLLAMA_URL
 from ..database import SessionLocal
 from ..deps import require_admin
 from ..services.safety import check_safety
@@ -82,3 +88,72 @@ def dict_test(data: DictTest):
 
     return {"safety": safety, "symptom": symptom}
 
+
+
+# H-4 대시보드: 질문 기록(chat_log)으로 본 이용 현황 + 서버 상태
+def _ollama_status():
+    """AI 모델 서버(Ollama, k8s 밖 WSL)가 살아 있는지. 모델 목록만 물어봐요 (답 만들기는 안 해요)"""
+    started = time.monotonic()
+    try:
+        httpx.get(f"{OLLAMA_URL}/api/tags", timeout=3).raise_for_status()
+        return {"ok": True, "ms": round((time.monotonic() - started) * 1000)}
+    except httpx.HTTPError:
+        return {"ok": False, "ms": None}
+
+
+def _daily_counts(db, days):
+    """최근 days일의 날짜별 질문 수 → {date: (전체, 차단)}. 질문이 없는 날은 빠져 있어도 돼요 (아래에서 0으로 채워요)
+    날짜는 한국 시간 기준이에요 (DB는 UTC로 저장)"""
+    rows = db.execute(text("""
+        SELECT (created_at AT TIME ZONE 'Asia/Seoul')::date AS day,
+               count(*) AS total,
+               count(*) FILTER (WHERE blocked) AS blocked
+        FROM chat_log
+        WHERE created_at >= now() - make_interval(days => :days)
+        GROUP BY day
+    """), {"days": days}).mappings().all()
+    return {row["day"]: (row["total"], row["blocked"]) for row in rows}
+
+
+@router.get("/dashboard")
+def dashboard(days: int = Query(7, ge=1, le=90)):
+    with SessionLocal() as db:
+        counts = _daily_counts(db, days)
+        totals = db.execute(text("""
+            SELECT count(*) AS questions,
+                   count(*) FILTER (WHERE blocked) AS blocked,
+                   count(*) FILTER (WHERE question_type IS NULL) AS unclassified,
+                   count(*) FILTER (WHERE reported OR feedback = -1) AS reported
+            FROM chat_log WHERE created_at >= now() - make_interval(days => :days)
+        """), {"days": days}).mappings().one()
+        types = db.execute(text("""
+            SELECT coalesce(question_type, '분류 못 함') AS type, count(*) AS count
+            FROM chat_log WHERE created_at >= now() - make_interval(days => :days)
+            GROUP BY 1 ORDER BY 2 DESC
+        """), {"days": days}).mappings().all()
+        response = db.execute(text("""
+            SELECT count(response_ms) AS measured,
+                   round(avg(response_ms)) AS avg_ms,
+                   round(percentile_cont(0.95) WITHIN GROUP (ORDER BY response_ms)) AS p95_ms
+            FROM chat_log
+            WHERE created_at >= now() - make_interval(days => :days) AND response_ms IS NOT NULL
+              AND NOT blocked   -- 차단은 AI를 안 불러서 빨라요. 섞으면 평균이 실제보다 좋아 보여요
+        """), {"days": days}).mappings().one()
+        dict_counts = {name: db.execute(text(f"SELECT count(*) FROM {name}")).scalar_one() for name in DICTS}
+
+    today = datetime.now(ZoneInfo("Asia/Seoul")).date()   # 컨테이너 시계는 UTC라서 한국 날짜로
+    daily = []
+    for i in range(days - 1, -1, -1):   # 오래된 날 → 오늘, 질문이 없는 날은 0
+        day = today - timedelta(days=i)
+        total, blocked = counts.get(day, (0, 0))
+        daily.append({"day": day.isoformat(), "total": total, "blocked": blocked})
+
+    return {
+        "days": days,
+        "status": {"db": True, "ollama": _ollama_status()},   # DB는 여기까지 왔으면 살아 있어요
+        "totals": dict(totals),
+        "daily": daily,
+        "types": [dict(row) for row in types],
+        "response": {k: (int(v) if v is not None else None) for k, v in response.items()},
+        "dict_counts": dict_counts,
+    }
