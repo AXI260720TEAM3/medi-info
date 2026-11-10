@@ -452,3 +452,73 @@ a.source-chip:hover{
 }
 .admin-bar-value { font-size: 0.75rem; color: var(--text-muted); }
 .admin-bar-label { font-size: 0.7rem; color: var(--text-muted); margin-top: 4px; white-space: nowrap; }
+
+/* AI 질문 "이 대화의 약" 칩 (ChatDrugChips.jsx, Chat.jsx 후보) */
+.drug-chips-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.drug-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.drug-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.9rem;
+}
+.drug-chip.is-current {
+  border-color: var(--primary);
+  background: var(--primary-bg);
+  color: var(--primary-text);
+  font-weight: 500;
+}
+.drug-chip.is-candidate {       /* 아직 담지 않은 후보: 점선, 누르면 담겨요 */
+  border-style: dashed;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.drug-chip.is-candidate:disabled { opacity: 0.5; cursor: default; }
+.drug-chip-name,
+.drug-chip-remove {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  min-height: 36px;             /* 손가락으로 누르기 쉽게 */
+}
+.drug-chip-name {
+  padding: 6px 4px 6px 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 16em;
+}
+.drug-chip-remove {
+  padding: 6px 10px 6px 6px;
+  font-size: 1rem;
+  line-height: 1;
+}
+.drug-chip button:focus-visible,
+.drug-chip.is-candidate:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.drug-chip-add { padding: 6px 12px; }
+.drug-chip-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
