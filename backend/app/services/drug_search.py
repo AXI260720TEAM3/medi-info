@@ -13,6 +13,8 @@ def merge(easy, permit):
     for d in permit:
         merged[d["item_seq"]] = {**d, "has_easy": False}
     for d in easy:
+        if "(수출용)" in d["item_name"]:   # 허가정보 쪽과 같은 규칙 (e약은요에도 수출용이 섞여 있어요)
+            continue
         merged[d["item_seq"]] = {**merged.get(d["item_seq"], {}), **d, "has_easy": True}
     return list(merged.values())
 

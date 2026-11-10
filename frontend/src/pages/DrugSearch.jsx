@@ -5,6 +5,7 @@ import ErrorMessage from '../components/ErrorMessage'
 import AlertBox from '../components/AlertBox'
 import DrugImage from '../components/DrugImage'
 import Badge from '../components/Badge'
+import DurBadges from '../components/DurBadges'
 
 const PAGE_SIZE = 10
 const PAGE_LINKS = 5   // 쪽 번호를 한 번에 몇 개 보여 줄지
@@ -144,6 +145,7 @@ function DrugSearch() {
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6}}>
                   <Badge type="notice">{drug.etc_otc ?? '일반의약품'}</Badge>
                   {drug.has_easy === false && <Badge type="none">쉬운 설명 없음</Badge>}
+                  <DurBadges itemSeq={drug.item_seq} />
                 </div>
               </div>
               <Link to={`/drugs/${drug.item_seq}`} className="btn btn-secondary">상세 보기</Link>
