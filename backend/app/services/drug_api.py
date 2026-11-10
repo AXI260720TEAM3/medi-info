@@ -1,7 +1,10 @@
 import httpx
 from ..config import DATA_GO_KR_KEY
+from .api_cache import ttl_cache
 
 URL = "https://apis.data.go.kr/1471000/DrbEasyDrugInfoService/getDrbEasyDrugList"
+CACHE_SECONDS = 3600   # 같은 질문은 1시간 동안 기억 (약 정보는 하루에도 거의 안 바뀌어요)
+TIMEOUT = 8            # 한 번에 8초까지 기다리고, 연결·시간 초과면 한 번 더 (최악 16초)
 
 # API 칸 이름 -> 우리 칸 이름
 FIELDS = {
@@ -21,7 +24,14 @@ FIELDS = {
 
 def _call(params):
     params = {"serviceKey": DATA_GO_KR_KEY, "type":"json", **params}
-    res = httpx.get(URL, params=params, timeout=10)
+    # e약은요가 가끔 10초 가까이 걸리거나 끊겨요. 연결·시간 초과면 한 번만 더 해 봐요
+    for attempt in (1, 2):
+        try:
+            res = httpx.get(URL, params=params, timeout=TIMEOUT)
+            break
+        except (httpx.TimeoutException, httpx.ConnectError):
+            if attempt == 2:
+                raise
     res.raise_for_status()
     body = res.json()["body"]
     items = body.get("items") or []
@@ -30,9 +40,11 @@ def _call(params):
 def _rename(item):
     return {ours: item.get(api) for api, ours in FIELDS.items()}
 
+@ttl_cache(CACHE_SECONDS)
 def search_by_name(name, page=1, size=10):
     return _call({"itemName": name, "pageNo": page, "numOfRows": size})
 
+@ttl_cache(CACHE_SECONDS)
 def get_by_seq(item_seq):
     total, items = _call({"itemSeq": item_seq})
     for item in items:
@@ -40,6 +52,7 @@ def get_by_seq(item_seq):
             return item
     return None
 
+@ttl_cache(CACHE_SECONDS)
 def search_by_efcy(symptom, page=1, size=10):
     return _call({"efcyQesitm": symptom, "pageNo":page, "numOfRows": size})
 
