@@ -1,17 +1,26 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
+import ChatDrugChips, { MAX_DRUGS } from '../components/ChatDrugChips'
 import ChatScan from '../components/ChatScan'
 import OpenPharmacies from '../components/OpenPharmacies'
+import { baseName } from '../utils/image'
 
 const API_URL = import.meta.env.VITE_API_URL || '/api/ask'
 const HISTORY_LIMIT = 6
 
-function initialDrugContext() {
+// 약 상세의 [이 약 질문하기]는 /chat?item_seq=…&drug_name=… 으로 와요 → 그 약 하나를 담고 ●로
+function initialDrugs() {
   const params = new URLSearchParams(window.location.search)
-  return {
-    itemSeq: params.get('itemSeq') || params.get('item_seq') || null,
-    drugName: params.get('drugName') || params.get('drug_name') || null,
-  }
+  const itemSeq = params.get('itemSeq') || params.get('item_seq')
+  const name = params.get('drugName') || params.get('drug_name')
+  return itemSeq ? [{ item_seq: itemSeq, item_name: name || itemSeq }] : []
+}
+
+// 목록에 약 담기: 이미 있으면 그대로, 10개가 차면 담지 않아요 (그대로 돌려줘요)
+function addTo(list, drug) {
+  if (!drug?.item_seq || list.some(d => d.item_seq === String(drug.item_seq))) return list
+  if (list.length >= MAX_DRUGS) return list
+  return [...list, { item_seq: String(drug.item_seq), item_name: drug.item_name || '' }]
 }
 
 // REQ-F-050: 약사 상담을 권하는 답이면 답변 아래에 "지금 문 연 약국"을 붙여요
@@ -23,7 +32,10 @@ function needsPharmacy(message, isLast) {
 }
 
 export default function Chat() {
-  const [drug, setDrug] = useState(initialDrugContext)
+  // 이 대화의 약 (API 계약 6장). 목록의 주인은 화면이고, 서버는 "담아라"(add_drugs)·"지금 약"(current_seq)만 알려줘요
+  const [drugs, setDrugs] = useState(initialDrugs)
+  const [currentSeq, setCurrentSeq] = useState(() => initialDrugs()[0]?.item_seq ?? null)
+  const [chipNotice, setChipNotice] = useState('')
   const [messages, setMessages] = useState([])
   const [draft, setDraft] = useState('')
   const [pendingQuestion, setPendingQuestion] = useState('')
@@ -36,9 +48,8 @@ export default function Chat() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
   }, [messages, pendingQuestion, error])
 
-  async function handleSubmit(event) {
-    event.preventDefault()
-    const question = draft.trim()
+  // 질문 보내기. list·current를 직접 받아요: 후보 칩을 누른 직후처럼 상태가 아직 안 바뀐 때도 새 목록으로 보내려고
+  async function send(question, list, current, fromDraft) {
     if (!question || requestInFlight.current) return
 
     requestInFlight.current = true
@@ -58,9 +69,9 @@ export default function Chat() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           question,
-          drug_name: drug.drugName,
-          item_seq: drug.itemSeq,
           history,
+          drugs: list,
+          current_seq: current,
         }),
       })
 
@@ -95,13 +106,24 @@ export default function Chat() {
           category: result.category || '',
           items: result.items || [],
           itemsNote: result.items_note || '',
+          candidates: result.candidates || null,   // 같은 이름의 약이 여럿: 골라서 다시 묻기
+          question,
         },
       ])
-      setDrug((prev) => ({
-        itemSeq: result.item_seq || prev.itemSeq,
-        drugName: result.item_name || prev.drugName,
-      }))
-      setDraft('')
+
+      // 서버가 질문에서 찾은 약을 담고, 지금 약(●)을 맞춰요 (API 계약 2-2)
+      let next = list
+      for (const found of result.add_drugs || []) next = addTo(next, found)
+      setDrugs(next)
+      if (result.current_seq && next.some(d => d.item_seq === result.current_seq)) {
+        setCurrentSeq(result.current_seq)
+      }
+      setChipNotice(
+        (result.add_drugs || []).some(d => !next.some(n => n.item_seq === String(d.item_seq)))
+          ? `약은 ${MAX_DRUGS}개까지라 새로 찾은 약을 담지 못했어요. 하나를 빼고 다시 물어봐 주세요.`
+          : '',
+      )
+      if (fromDraft) setDraft('')
     } catch (err) {
       setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했어요.')
       // 실패한 질문은 대화 이력에 넣지 않고 입력란에 남겨 재시도하게 합니다.
@@ -112,20 +134,62 @@ export default function Chat() {
     }
   }
 
+  function handleSubmit(event) {
+    event.preventDefault()
+    send(draft.trim(), drugs, currentSeq, true)
+  }
+
+  // 담고 ●로 (후보 칩, 약봉지 사진). 10개가 차서 못 담으면 null
+  function pickDrug(drug) {
+    const next = addTo(drugs, drug)
+    if (next === drugs && !drugs.some(d => d.item_seq === String(drug.item_seq))) {
+      setChipNotice(`약은 ${MAX_DRUGS}개까지예요. 하나를 빼고 다시 골라 주세요.`)
+      return null
+    }
+    setDrugs(next)
+    setCurrentSeq(String(drug.item_seq))
+    setChipNotice('')
+    return next
+  }
+
+  // [+ 약 추가]: 담기만 해요. 지금 약이 없을 때만 ●로
+  function addDrug(drug) {
+    setDrugs(addTo(drugs, drug))
+    if (!currentSeq) setCurrentSeq(String(drug.item_seq))
+  }
+
+  // ×: 빼기. 지금 약을 빼면 남은 약 중 마지막 약이 ●
+  function removeDrug(seq) {
+    const next = drugs.filter(d => d.item_seq !== seq)
+    setDrugs(next)
+    if (seq === currentSeq) setCurrentSeq(next.length ? next[next.length - 1].item_seq : null)
+    setChipNotice('')
+  }
+
+  // 후보를 고르면 그 약을 담고, 방금 질문을 그 약으로 다시 물어요 ("게보린 공복에…" → 게보린정)
+  function pickCandidate(message, candidate) {
+    const next = pickDrug(candidate)
+    if (next && message.question) send(message.question, next, String(candidate.item_seq), false)
+  }
+
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <header>
         <h1 className="title">AI 의약품 질문</h1>
-        <p className="muted">
-          {drug.drugName
-            ? `선택한 의약품: ${drug.drugName}`
-            : drug.itemSeq
-              ? `선택한 의약품 품목번호: ${drug.itemSeq}`
-              : '의약품을 선택하지 않았어요. 질문에 약 이름을 포함해 주세요.'}
-        </p>
+        <p className="muted">질문에 약 이름을 쓰면 아래 목록에 담겨요. 약을 여러 개 담아 두고 골라 가며 물어볼 수 있어요.</p>
       </header>
 
-      <ChatScan selectedSeq={drug.itemSeq} onPick={setDrug} />
+      <ChatDrugChips
+        drugs={drugs}
+        currentSeq={currentSeq}
+        onSelect={setCurrentSeq}
+        onRemove={removeDrug}
+        onAdd={addDrug}
+        notice={chipNotice}
+        disabled={loading}
+      />
+
+      <ChatScan selectedSeq={currentSeq} onPick={(d) => pickDrug({ item_seq: d.itemSeq, item_name: d.drugName })} />
 
       <div className="card" aria-label="채팅 대화" style={{ display: 'flex', flexDirection: 'column', gap: 12, minHeight: 280 }}>
         {messages.length === 0 && !pendingQuestion && (
@@ -154,7 +218,28 @@ export default function Chat() {
 
           {needsPharmacy(message, index === messages.length - 1) && <OpenPharmacies />}
 
-          {message.itemsNote && (
+          {/* 같은 이름의 약이 여럿 (API 계약 2-2 candidates): 고르면 그 약을 담고 방금 질문을 다시 물어요 */}
+          {message.candidates?.length > 0 && (
+            <div style={{ marginTop: 8, whiteSpace: 'normal' }}>
+              <p className="muted" style={{ marginTop: 0, marginBottom: 6 }}>어느 약인가요? 누르면 그 약으로 다시 물어볼게요.</p>
+              <div className="drug-chips">
+                {message.candidates.map(candidate => (
+                  <button
+                    key={candidate.item_seq}
+                    type="button"
+                    className="drug-chip is-candidate"
+                    onClick={() => pickCandidate(message, candidate)}
+                    disabled={loading}
+                    title={candidate.item_name}
+                  >
+                    {baseName(candidate.item_name)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {message.itemsNote && !message.candidates?.length && (
             <div style={{ marginTop: 8 }}>
               <p className="muted" style={{ marginTop: 0, marginBottom: 4 }}>{message.itemsNote}</p>
               {message.items.length > 0 && (
