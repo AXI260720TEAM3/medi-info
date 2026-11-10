@@ -53,6 +53,12 @@ def get_by_seq(item_seq):
     return None
 
 @ttl_cache(CACHE_SECONDS)
+def search_by_company(company, page=1, size=10):
+    """e약은요를 회사 이름으로 찾기 (부분 일치: '동아제약' → '동아제약(주)')"""
+    return _call({"entpName": company, "pageNo": page, "numOfRows": size})
+
+
+@ttl_cache(CACHE_SECONDS)
 def search_by_efcy(symptom, page=1, size=10):
     return _call({"efcyQesitm": symptom, "pageNo":page, "numOfRows": size})
 

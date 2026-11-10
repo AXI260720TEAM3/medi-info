@@ -9,14 +9,19 @@ SCHEMA = {
     "type": "object",
     "properties": {
         "drug_name": {"type": ["string", "null"]},
+        "ingredient": {"type": ["string", "null"]},
+        "company": {"type": ["string", "null"]},
         "symptom": {"type": ["string", "null"]},
     },
-    "required": ["drug_name", "symptom"],
+    "required": ["drug_name", "ingredient", "company", "symptom"],
 }
 
 SYSTEM = (
-    "너는 약국 접수 직원이야. 손님 말에서 두 가지를 뽑아 JSON으로만 답해.\n"
-    "- drug_name: 손님이 직접 말한 약 이름. 말하지 않았으면 null. 절대 지어내지 마.\n"
+    "너는 약국 접수 직원이야. 손님 말에서 네 가지를 뽑아 JSON으로만 답해.\n"
+    "- drug_name: 손님이 직접 말한 약(제품) 이름. 말하지 않았으면 null. 절대 지어내지 마.\n"
+    "- ingredient: 손님이 '성분'으로 말한 것 (예: 아세트아미노펜, 이부프로펜, 로라타딘). "
+    "'~ 들어간 약', '~ 성분' 처럼 성분을 찾을 때만. 제품 이름(타이레놀, 게보린)은 성분이 아니야. 없으면 null.\n"
+    "- company: 손님이 말한 제약회사 이름 (예: 동아제약, 한국얀센, 종근당). '~ 회사 약', '~에서 만든 약'일 때. 없으면 null.\n"
     "- symptom: 손님이 직접 말한 증상을 의약품 설명서에 쓰는 공식 낱말 하나로 바꾼 것. 반드시 한글로만 써. "
     "손님이 증상을 말하지 않았으면 null. 약 이름만 보고 증상을 짐작하지 마.\n"
     "예) 머리가 지끈거려요 → 두통 / 열이 나요 → 발열 / 속이 쓰려요 → 속쓰림 / "
