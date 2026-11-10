@@ -9,6 +9,11 @@ def get_current_user(access_token: str | None = Cookie(default=None)):
         raise HTTPException(status_code=401, detail="로그인이 필요해요.")
     return user
 
+def get_optional_user(access_token: str | None = Cookie(default=None)):
+    """로그인 안 해도 쓰는 API용: 로그인했으면 사용자, 아니면 None (401을 내지 않아요)"""
+    user_id = read_token(access_token) if access_token else None
+    return get_user(user_id) if user_id else None
+
 def admin_host_only(request: Request):
     """관리자 API는 정해진 주소(ADMIN_HOSTS, k8s에선 medi.localhost)로 온 요청만 받아요
     Funnel 주소(○○.ts.net)로 온 요청은 관리자 API가 없는 것처럼 404. ADMIN_HOSTS가 비어 있으면(compose) 다 받아요

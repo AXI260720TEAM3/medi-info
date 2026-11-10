@@ -6,7 +6,7 @@ from typing import Literal
 import logging
 import time
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from ..config import OLLAMA_URL
@@ -15,6 +15,8 @@ from ..services.privacy import mask_personal
 from ..services.dur_api import get_ingredients
 from ..services.query_ai import parse_query
 from ..services.search import find_drug
+from ..deps import get_optional_user
+from ..services.my_meds import get_profile
 from ..services.safety import check_safety, add_disclaimer, find_banned
 from ..services.synonym import find_symptom
 
@@ -678,15 +680,17 @@ def redirect_drugs(question: str) -> list[dict]:
 
 
 @router.post("/ask")
-def ask(data: AskRequest):
+def ask(data: AskRequest, user: dict | None = Depends(get_optional_user)):
     started = time.monotonic()
     question = data.question.strip()
     if not question:
         raise HTTPException(status_code=422, detail="질문을 입력해 주세요.")
 
     # 위험 사전은 외부 DB 조회. 실패 시 안전 검사를 건너뛰지 않습니다.
+    # 로그인하고 건강정보에 동의한 사람은 내 약 화면에서 고른 프로필(임부·소아·노인)도 안전 검사에 넣습니다.
     try:
-        safety = check_safety(question)
+        profile = get_profile(user["user_id"]) if user and user["agree_health"] else None
+        safety = check_safety(question, profile)
     except Exception as exc:
         raise HTTPException(status_code=503, detail="안전 검사 정보를 확인할 수 없어요.") from exc
     

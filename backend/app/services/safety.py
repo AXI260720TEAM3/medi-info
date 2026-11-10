@@ -58,6 +58,7 @@ CAUTION_MESSAGES = {
     "노인": "어르신은 약의 영향을 더 크게 받을 수 있으니 약사와 먼저 상담하세요.",
     "복용중": "지금 드시는 약이 있다면 함께 먹어도 되는지 약사와 먼저 확인하세요.",
 }
+PROFILE_TARGETS = ("임부", "소아", "노인")  # 내 약 화면에서 고를 수 있는 프로필 (my_meds.ProfileRequest)
 # AI 답변에 나오면 안 되는 표현 (띄어쓰기를 지운 답변과 비교)
 BANNED_PHRASES = [
     "약을드세요", "드시면됩니다", "추천합니다", "가장좋습니다",  # 약 골라 주기
@@ -135,7 +136,18 @@ def _is_infant_fever(text: str) -> bool:
     return False
 
 
-def check_safety(question: str) -> dict:
+def _add_profile(profile, matched: list, message: str):
+    """내 약 화면에서 고른 프로필(임부·소아·노인)도 주의 대상으로 붙인다. 질문에 '임신'이 없어도 경고가 뜨게."""
+    if profile not in PROFILE_TARGETS:
+        return matched, message
+    profile_message = CAUTION_MESSAGES[profile]
+    if profile_message not in message:
+        message = f"{message} {profile_message}".strip()
+    return matched + [f"프로필:{profile}"], message
+
+
+def check_safety(question: str, profile: str | None = None) -> dict:
+    """profile은 로그인한 사람이 고른 주의 대상('임부'·'소아'·'노인'). 없으면 질문 글자만 본다."""
     text = question.replace(" ", "")
 
     for row in _load_danger_keywords():
@@ -161,6 +173,7 @@ def check_safety(question: str) -> dict:
         }
 
     caution_matched, caution_message = _check_cautions(text)
+    caution_matched, caution_message = _add_profile(profile, caution_matched, caution_message)
 
     keywords = list(RECOMMEND_KEYWORDS)
     if not any(word in text for word in NOT_DRUG_WORDS):
