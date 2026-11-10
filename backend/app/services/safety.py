@@ -19,6 +19,16 @@ KOREAN_COUNTS = {"한": 1, "두": 2, "세": 3}
 BABY_WORDS = ("아기", "애기", "신생아", "생후")
 FEVER_WORDS = ("열이", "열나", "열났", "발열", "고열", "미열")
 
+# '다섯 살 아들'처럼 나이로 말하는 어린이. 12살까지 소아로 본다
+# '서른두 살', '스물한 살'의 두·한은 어린이 나이가 아니어서 앞에 십 단위 말이 붙으면 뺀다
+CHILD_AGE_PATTERN = re.compile(
+    r"(?<!스물)(?<!서른)(?<!마흔)(?<!예순)(?<!일흔)(?<!여든)(?<!아흔)(?<!열)(?<![\d쉰])"
+    r"(\d+|열한|열두|한|두|세|네|다섯|여섯|일곱|여덟|아홉|열)살"
+)
+CHILD_AGES = {"한": 1, "두": 2, "세": 3, "네": 4, "다섯": 5, "여섯": 6, "일곱": 7, "여덟": 8, "아홉": 9,
+              "열": 10, "열한": 11, "열두": 12}
+CHILD_MAX_AGE = 12
+
 # action마다 손님에게 보여 줄 안내
 ACTION_MESSAGES = {
     "119": "응급 상황일 수 있습니다. 지금 바로 119에 전화하세요.",
@@ -33,9 +43,10 @@ RECOMMEND_KEYWORDS = [
     "무슨약을", "무슨약먹", "어떤약을", "어떤약이+좋", "어떤게좋",
     "에뭐먹으면", "에뭐먹어야", "약뭐먹", "뭐가좋아",
     "잘듣는약", "골라줘", "좋은약+알려", "좋은약+있",
+    "제뭐먹", "살수있는약", "살수있는+제",  # 진통제 뭐 먹을까, 약국에서 살 수 있는 약(수면제) 있어?
 ]
 # 약 이름을 몰라도 추천 요청으로 보는 넓은 표현. 약이 아닌 것을 추천해 달라는 질문은 뺀다
-RECOMMEND_BROAD_KEYWORDS = ["추천좀", "추천해주세요", "추천해줘"]
+RECOMMEND_BROAD_KEYWORDS = ["추천좀", "추천해주세요", "추천해줘", "뭐사면+좋"]
 NOT_DRUG_WORDS = ["약국", "병원", "음식"]
 RECOMMEND_MESSAGE = "특정 약을 골라 드릴 수는 없습니다. 증상에 쓰는 약의 정보를 보여 드릴 수 있으니, 어떤 약이 맞는지는 약사와 상담해 보세요."
 
@@ -84,7 +95,22 @@ def _check_cautions(text: str):
             message = CAUTION_MESSAGES[row["target"]]
             if message not in messages:
                 messages.append(message)
+    age = _child_age(text)
+    if age is not None:
+        matched.append(f"{age}살")
+        if CAUTION_MESSAGES["소아"] not in messages:
+            messages.append(CAUTION_MESSAGES["소아"])
     return matched, " ".join(messages)
+
+
+def _child_age(text: str):
+    """질문에 12살 이하 나이가 있으면 그 나이, 없으면 None."""
+    for match in CHILD_AGE_PATTERN.finditer(text):
+        word = match.group(1)
+        age = int(word) if word.isdigit() else CHILD_AGES[word]
+        if age <= CHILD_MAX_AGE:
+            return age
+    return None
 
 
 def _is_overdose(text: str) -> bool:
