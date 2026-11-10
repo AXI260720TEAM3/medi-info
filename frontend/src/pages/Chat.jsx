@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
+import ChatScan from '../components/ChatScan'
 import OpenPharmacies from '../components/OpenPharmacies'
 
 const API_URL = import.meta.env.VITE_API_URL || '/api/ask'
@@ -123,6 +124,8 @@ export default function Chat() {
               : '의약품을 선택하지 않았어요. 질문에 약 이름을 포함해 주세요.'}
         </p>
       </header>
+
+      <ChatScan selectedSeq={drug.itemSeq} onPick={setDrug} />
 
       <div className="card" aria-label="채팅 대화" style={{ display: 'flex', flexDirection: 'column', gap: 12, minHeight: 280 }}>
         {messages.length === 0 && !pendingQuestion && (
