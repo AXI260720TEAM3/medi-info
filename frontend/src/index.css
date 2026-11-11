@@ -237,11 +237,20 @@ a:hover {
 .header-inner {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 10px 24px;
+  padding: 0 24px;
+  min-height: 72px;
   display: flex;
-  flex-wrap: wrap;
+  align-items: stretch;        /* 메뉴 밑줄이 머리 아래 선에 닿게 높이를 채워요 */
+  gap: 0 40px;
+}
+.logo, .header-account {
+  align-self: center;
+}
+.header-account {
+  margin-left: auto;
+  display: flex;
   align-items: center;
-  gap: 10px 28px;
+  gap: 10px;
 }
 .logo {
   display: flex;
@@ -266,28 +275,46 @@ a:hover {
   justify-content: center;
 }
 .nav {
-  flex: 1 1 auto;
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
+  gap: 28px;
 }
-.nav a {
+.nav a {                   /* 바탕 대신 글자와 밑줄로 지금 화면을 알려요 (11/11 화면 3단계) */
   display: flex;
   align-items: center;
   min-height: 44px;
-  padding: 0 14px;
-  border-radius: var(--radius);
-  font-size: 15px;
-  color: #374151;
+  padding: 0 2px;
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--text-muted);
+  white-space: nowrap;
 }
 .nav a:hover {
-  background: var(--surface-muted);
+  color: var(--text);
   text-decoration: none;
+  box-shadow: inset 0 -3px 0 var(--border-strong);
 }
 .nav a.active {            /* NavLink가 지금 화면 메뉴에 붙여 주는 클래스 */
-  background: var(--primary-bg);
-  color: var(--primary-text);
+  color: var(--text);
   font-weight: 700;
+  box-shadow: inset 0 -3px 0 var(--primary);
+}
+
+/* 휴대폰: 1줄 로고 + 로그인, 2줄 메뉴 (넘치면 옆으로 밀어 봐요) */
+@media (max-width: 640px) {
+  .header-inner {
+    flex-wrap: wrap;
+    padding: 0 16px;
+    min-height: 0;
+  }
+  .logo { padding: 12px 0; }
+  .nav {
+    order: 3;
+    flex: 1 0 100%;
+    gap: 22px;
+    overflow-x: auto;
+    border-top: 1px solid var(--border);
+  }
+  .nav a { min-height: 50px; font-size: 17px; }
 }
 
 .footer {

@@ -42,7 +42,7 @@ function Layout() {
         <nav className="nav" aria-label="주요 메뉴">
           {MENU.map(m => <NavLink key={m.to} to={m.to}>{m.label}</NavLink>)}
         </nav>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div className="header-account">
           {user ? (<>
             {user.role === 'admin' && <Link to="/admin">관리자</Link>}
             <Link to="/account">{user.display_name}님</Link>
