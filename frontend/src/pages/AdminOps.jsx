@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Badge from '../components/Badge'
 
-// 관리자 운영 탭 (H-5): k8s 상태 보기, backend·web 다시 시작, 사전 다시 적재
+// 관리자 운영 탭 (H-5): k8s 상태 보기, backend·web 다시 시작, 사전 다시 적재, 백업과 저장 공간
 // 백엔드 → 운영 API(ops 파드) → k8s API 순서로 가요. compose에서는 503 안내만 보여요
 const fmt = (iso) => (iso ? new Date(iso).toLocaleString('ko-KR') : '-')
 
@@ -24,6 +24,108 @@ function ConfirmButton({ label, confirmText, onConfirm, disabled }) {
       <button type="button" className="btn btn-primary" onClick={() => { setAsking(false); onConfirm() }}>확인</button>
       <button type="button" className="btn btn-secondary" onClick={() => setAsking(false)}>취소</button>
     </span>
+  )
+}
+
+// "5Gi", "512Mi" → MiB
+const toMib = (q) => {
+  const m = /^(\d+(?:\.\d+)?)(Gi|Mi)$/.exec(q || '')
+  return m ? Number(m[1]) * (m[2] === 'Gi' ? 1024 : 1) : null
+}
+const STALE_HOURS = 36   // 매일 백업이니, 하루 반이 넘게 새 파일이 없으면 놓친 거예요
+
+// 백업과 저장 공간: 매일 12:40 db-backup이 backups/에 .dump를 만들고 최근 3개만 남겨요 (k8s/backup.yaml)
+function BackupPanel() {
+  const [data, setData] = useState(null)
+  const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const load = useCallback(() => {
+    call('GET', '/api/admin/ops/backups')
+      .then((d) => { setData(d); setError('') })
+      .catch((err) => setError(err.message))
+  }, [])
+  useEffect(() => { load() }, [load])
+
+  const backupNow = async () => {
+    setBusy(true)
+    setMessage('')
+    try {
+      const d = await call('POST', '/api/admin/ops/backup-now')
+      setMessage(`${d.job}을(를) 만들었어요. 보통 1분 안에 끝나요.`)
+      setTimeout(load, 5000)
+    } catch (err) {
+      setMessage(err.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (error) return <section className="card"><h2>백업과 저장 공간</h2><p style={{ color: 'var(--danger-text)' }}>{error}</p></section>
+  if (!data) return <section className="card"><h2>백업과 저장 공간</h2><p>불러오는 중...</p></section>
+
+  const newest = data.files[0]
+  const ageHours = newest ? (Date.now() - new Date(newest.at)) / 36e5 : null
+  const capacity = toMib(data.pvc_capacity)
+  const usedPct = capacity ? Math.min(100, (data.db_size_mib / capacity) * 100) : null
+  const last = data.last_job
+
+  return (
+    <section className="card">
+      <h2>백업과 저장 공간</h2>
+      {!newest && <p><Badge type="caution">백업 없음</Badge> 아직 백업 파일이 없어요. [지금 백업]으로 하나 만들어 두세요.</p>}
+      {newest && ageHours > STALE_HOURS && (
+        <p><Badge type="caution">오래됨</Badge> 마지막 백업이 {Math.floor(ageHours)}시간 전이에요. PC나 k3s가 꺼져 있어 예약을 놓쳤을 수 있어요.</p>
+      )}
+      {last?.state === '실패' && <p><Badge type="caution">실패</Badge> 마지막 백업 작업({last.name})이 실패했어요. 파드 기록을 확인해 주세요.</p>}
+
+      <p className="muted">
+        매일 {data.schedule.split(' ').slice(0, 2).reverse().map(n => n.padStart(2, '0')).join(':')}({data.time_zone === 'Asia/Seoul' ? '한국 시간' : data.time_zone || 'UTC'})에
+        이 PC의 <code>backups/</code> 폴더에 DB 전체를 복사하고 최근 3개만 남겨요. 계정·내 약·질문 기록이 들어 있어서 저장소에는 올리지 않아요.
+      </p>
+      <p style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <ConfirmButton label="지금 백업" confirmText="DB 백업을 지금 만들까요?" disabled={busy || data.running} onConfirm={backupNow} />
+        <button type="button" className="btn btn-secondary" onClick={load}>새로 보기</button>
+        {data.running && <Badge type="notice">백업 진행 중</Badge>}
+      </p>
+      {message && <p><strong>{message}</strong></p>}
+
+      <div className="table-card">
+        <table className="med-table">
+          <thead><tr><th>백업 파일</th><th>크기</th><th>만든 시각</th></tr></thead>
+          <tbody>
+            {data.files.map(f => (
+              <tr key={f.name}><td>{f.name}</td><td>{f.size_mib} MB</td><td>{fmt(f.at)}</td></tr>
+            ))}
+            {data.files.length === 0 && <tr><td colSpan={3}>백업 파일이 없어요.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      {last && <p className="muted">마지막 작업: {last.name} · {last.state}{last.manual ? ' · 손으로 실행' : ''} · {fmt(last.created)}</p>}
+
+      <h3>DB 저장 공간</h3>
+      <p>
+        <strong>{data.db_size_mib} MB</strong>
+        {capacity ? ` / ${data.pvc_capacity} (${usedPct.toFixed(1)}%)` : ''}
+      </p>
+      {usedPct !== null && (
+        <div role="img" aria-label={`DB 저장 공간 ${usedPct.toFixed(1)}% 사용`}
+          style={{ height: 10, borderRadius: 999, background: 'var(--surface-muted)', overflow: 'hidden', marginBottom: 12 }}>
+          <div style={{ width: `${Math.max(usedPct, 1)}%`, height: '100%', background: usedPct > 80 ? 'var(--caution)' : 'var(--primary)' }} />
+        </div>
+      )}
+      <div className="table-card">
+        <table className="med-table">
+          <thead><tr><th>큰 표</th><th>크기</th><th>행 수(대략)</th></tr></thead>
+          <tbody>
+            {data.tables.map(t => (
+              <tr key={t.name}><td>{t.name}</td><td>{t.size_mib} MB</td><td>{t.rows.toLocaleString('ko-KR')}</td></tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   )
 }
 
@@ -127,6 +229,8 @@ function AdminOps() {
         ))}
       </ul>
     </section>
+
+    <BackupPanel />
   </>)
 }
 export default AdminOps

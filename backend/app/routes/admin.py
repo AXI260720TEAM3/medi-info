@@ -191,3 +191,22 @@ def ops_restart(name: Literal["backend", "web"], user: dict = Depends(require_ad
 def ops_dict_reload(user: dict = Depends(require_admin)):
     logging.warning("관리자 %s: 사전 다시 적재", user["login_id"])
     return _ops("POST", "/dict-reload")
+
+
+# 백업 파일·예약은 ops가, DB 안의 크기는 DB 계정이 있는 백엔드가 봐요 (ops는 DB 계정이 없어요)
+@router.get("/ops/backups")
+def ops_backups():
+    data = _ops("GET", "/backups")
+    with SessionLocal() as db:
+        data["db_size_mib"] = round(db.execute(text("SELECT pg_database_size(current_database())")).scalar() / 2**20, 1)
+        # n_live_tup는 DB가 넣고 지울 때마다 세어 둔 대략의 행 수예요 (count(*)처럼 표 전체를 읽지 않아요)
+        data["tables"] = [{"name": name, "size_mib": round(size / 2**20, 2), "rows": rows} for name, size, rows in db.execute(text(
+            """SELECT relname, pg_total_relation_size(relid), n_live_tup FROM pg_stat_user_tables
+               WHERE schemaname = 'public' ORDER BY 2 DESC LIMIT 5"""))]
+    return data
+
+
+@router.post("/ops/backup-now")
+def ops_backup_now(user: dict = Depends(require_admin)):
+    logging.warning("관리자 %s: 지금 백업", user["login_id"])
+    return _ops("POST", "/backup-now")

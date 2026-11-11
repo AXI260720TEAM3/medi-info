@@ -1,10 +1,11 @@
 """medi-info 운영 API (기능명세 H-5). 관리자 화면의 운영 탭이 백엔드를 거쳐 불러요
 - 바깥에서 바로 오는 길(Ingress)이 없어요. 같은 클러스터의 백엔드 파드만 들어올 수 있어요 (NetworkPolicy)
 - 백엔드는 관리자 확인을 한 뒤 X-Ops-Token을 붙여서 불러요. 토큰이 없거나 틀리면 401
-- 할 수 있는 일: 상태 보기, backend·web 다시 시작, 사전 다시 적재(dict-load Job)"""
+- 할 수 있는 일: 상태 보기, backend·web 다시 시작, 사전 다시 적재(dict-load Job), 백업 보기·지금 백업(db-backup Job)"""
 import os
 import secrets
 from datetime import datetime, timezone
+from pathlib import Path
 
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException
@@ -13,6 +14,8 @@ from . import k8s
 
 OPS_TOKEN = os.environ["OPS_TOKEN"]   # 없으면 켜지지 않아요 (토큰 없이 열린 운영 API는 위험해서)
 RESTARTABLE = ("backend", "web")      # Role도 이 두 이름만 patch를 허락해요
+BACKUP_PATH = os.environ.get("BACKUP_PATH", "/backups")   # k8s/ops.yaml이 읽기 전용으로 붙여요
+MIB = 1024 * 1024
 
 
 def check_token(x_ops_token: str = Header(default="")):
@@ -103,12 +106,82 @@ def dict_reload():
     """사전 다시 적재: 멈춰 둔 dict-load CronJob의 설계도를 복사해서 Job을 하나 만들어요
     (kubectl create job --from=cronjob/dict-load 와 같아요)
     CSV는 마지막 배포 때 ConfigMap에 넣은 것이에요. 새 CSV를 넣으려면 PR 머지 뒤 다시 배포해요"""
-    cron = k8s.get(k8s.ns("cronjobs/dict-load", "/apis/batch/v1"))
-    name = "dict-load-manual-" + datetime.now(timezone.utc).strftime("%m%d%H%M%S")
+    return {"ok": True, "job": _job_from_cron("dict-load")}
+
+
+def _job_from_cron(cron_name):
+    """CronJob 설계도를 복사해서 Job을 지금 하나 만들어요. 이름은 코드에 적힌 둘(dict-load·db-backup)만 써요
+    주인(ownerReferences)을 CronJob으로 적어서, kubectl create job --from처럼 CronJob의 기록 개수 제한에 같이 묶여요"""
+    cron = k8s.get(k8s.ns(f"cronjobs/{cron_name}", "/apis/batch/v1"))
+    name = f"{cron_name}-manual-" + datetime.now(timezone.utc).strftime("%m%d%H%M%S")
     k8s.post(k8s.ns("jobs", "/apis/batch/v1"), {
         "apiVersion": "batch/v1",
         "kind": "Job",
-        "metadata": {"name": name, "annotations": {"cronjob.kubernetes.io/instantiate": "manual"}},
+        "metadata": {
+            "name": name,
+            "annotations": {"cronjob.kubernetes.io/instantiate": "manual"},
+            "ownerReferences": [{"apiVersion": "batch/v1", "kind": "CronJob", "name": cron_name,
+                                 "uid": cron["metadata"]["uid"], "controller": True}],
+        },
         "spec": cron["spec"]["jobTemplate"]["spec"],
     })
-    return {"ok": True, "job": name}
+    return name
+
+
+def _job_state(job):
+    status = job.get("status", {})
+    for c in status.get("conditions", []):
+        if c.get("status") == "True" and c.get("type") in ("Complete", "Failed"):
+            return "성공" if c["type"] == "Complete" else "실패"
+    return "진행 중"
+
+
+def _backup_files():
+    # 다 읽어 본 뒤에야 db_*.dump 이름이 붙어요 (k8s/backup.yaml). 만드는 중인 .tmp는 세지 않아요
+    try:
+        found = sorted(Path(BACKUP_PATH).glob("db_*.dump"), key=lambda f: f.stat().st_mtime, reverse=True)
+        return [{
+            "name": f.name,
+            "size_mib": round(f.stat().st_size / MIB, 2),
+            "at": datetime.fromtimestamp(f.stat().st_mtime, timezone.utc).isoformat(),
+        } for f in found]
+    except OSError:
+        return []
+
+
+@app.get("/backups", dependencies=[Depends(check_token)])
+def backups():
+    """백업 파일과 예약 상태, DB 저장 공간(PVC) 크기. DB 안의 크기는 DB 계정이 있는 백엔드가 따로 봐요"""
+    files = _backup_files()
+    try:
+        cron = k8s.get(k8s.ns("cronjobs/db-backup", "/apis/batch/v1"))
+        jobs = [j for j in k8s.get(k8s.ns("jobs", "/apis/batch/v1"))["items"]
+                if any(o.get("name") == "db-backup" for o in j["metadata"].get("ownerReferences", []))]
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"k8s API에 묻지 못했어요: {type(exc).__name__}")
+    latest = max(jobs, key=lambda j: j["metadata"]["creationTimestamp"], default=None)
+    try:
+        capacity = k8s.get(k8s.ns("persistentvolumeclaims/pgdata-db-0"))["status"]["capacity"]["storage"]
+    except (httpx.HTTPError, KeyError):
+        capacity = None
+    return {
+        "files": files,
+        "schedule": cron["spec"]["schedule"],
+        "time_zone": cron["spec"].get("timeZone"),
+        "last_job": latest and {
+            "name": latest["metadata"]["name"],
+            "state": _job_state(latest),
+            "created": latest["metadata"]["creationTimestamp"],
+            "manual": latest["metadata"].get("annotations", {}).get("cronjob.kubernetes.io/instantiate") == "manual",
+        },
+        "running": any(_job_state(j) == "진행 중" for j in jobs),
+        "pvc_capacity": capacity,   # 예: "5Gi"
+    }
+
+
+@app.post("/backup-now", dependencies=[Depends(check_token)])
+def backup_now():
+    """지금 백업: db-backup CronJob 설계도로 Job을 하나 만들어요. 이미 돌고 있으면 겹치지 않게 거절해요"""
+    if backups()["running"]:
+        raise HTTPException(status_code=409, detail="백업이 이미 진행 중이에요. 끝난 뒤 다시 해 주세요.")
+    return {"ok": True, "job": _job_from_cron("db-backup")}

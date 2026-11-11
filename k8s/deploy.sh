@@ -68,8 +68,13 @@ if [ "${ADMIN_ON_FUNNEL:-}" = 1 ] && [ -n "${FUNNEL_HOST:-}" ]; then
 fi
 OLD_ADMIN_HOSTS=$(kubectl -n $NS get configmap backend-config -o jsonpath='{.data.ADMIN_HOSTS}' 2>/dev/null || true)
 
+# DB 백업이 쌓일 폴더 (k8s/backup.yaml). 파드가 WSL 사용자(1000번)로 쓰니까 미리 만들어 둬요
+mkdir -p backups
+
 # 파일에는 :dev라고 적혀 있고, 배포할 때 이번 버전으로 바꿔요. 이름표가 바뀌면 k8s가 새 파드로 하나씩 갈아 끼워요
-kubectl kustomize k8s | sed -e "s#\(localhost:5000/medi-[a-z]*\):dev#\1:$TAG#" -e "s#^\(  ADMIN_HOSTS:\) .*#\1 $ADMIN_HOSTS#" | kubectl apply -f -
+# 백업 폴더도 파일에는 BACKUP_DIR이라고만 적고, 이 PC의 실제 경로로 바꿔요 (팀원마다 홈 폴더가 달라서)
+kubectl kustomize k8s | sed -e "s#\(localhost:5000/medi-[a-z]*\):dev#\1:$TAG#" -e "s#^\(  ADMIN_HOSTS:\) .*#\1 $ADMIN_HOSTS#" \
+  -e "s#path: BACKUP_DIR#path: $PWD/backups#" | kubectl apply -f -
 kubectl -n $NS annotate deploy backend web ops kubernetes.io/change-cause="$TAG" --overwrite
 # 환경 변수는 파드가 켜질 때 한 번 읽어요. 이미지가 같아도 ADMIN_HOSTS가 바뀌었으면 backend를 다시 켜요
 if [ -n "$OLD_ADMIN_HOSTS" ] && [ "$OLD_ADMIN_HOSTS" != "$ADMIN_HOSTS" ]; then

@@ -1,0 +1,72 @@
+# DB 백업: 매일 한 번 이 PC의 backups/ 폴더에 DB 전체 복사본(.dump)을 만들고, 최근 3개만 남겨요
+# (automachine의 db-backup과 같은 방식. 계정·내 약·질문 기록이 들어 있어서 backups/는 커밋하지 않아요)
+# - 다 만든 뒤 pg_restore로 한 번 읽어 보고 나서야 진짜 이름(db_날짜_시각.dump)을 붙여요. 중간에 끊긴 파일은 백업으로 치지 않아요
+# - 지금 바로 한 번: kubectl -n medi-info create job --from=cronjob/db-backup backup-now  (관리자 화면 운영 탭 버튼도 같아요)
+# - 되살리기는 k8s/README.md "DB 백업과 되살리기"
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: db-backup
+  namespace: medi-info
+spec:
+  schedule: "40 12 * * *"     # 한국 시간 12:40 (PC가 켜져 있을 때. automachine 12:30과 겹치지 않게)
+  timeZone: Asia/Seoul
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 21600   # k3s가 꺼져 있다가 6시간 안에 켜지면 놓친 백업을 그때 해요
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 1800
+      template:
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false   # k8s API를 쓸 일이 없어요
+          enableServiceLinks: false
+          securityContext:
+            runAsUser: 1000      # backups/ 폴더 주인(WSL 사용자)과 같은 번호라야 파일을 쓸 수 있어요
+            runAsGroup: 1000
+          containers:
+            - name: backup
+              image: pgvector/pgvector:pg17   # DB와 같은 이미지라 pg_dump 버전이 DB와 맞아요
+              env:
+                - name: PGHOST
+                  value: db
+                - name: PGUSER
+                  valueFrom:
+                    secretKeyRef: { name: medi-secrets, key: DB_USER }
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef: { name: medi-secrets, key: DB_PASS }
+                - name: PGDATABASE
+                  valueFrom:
+                    secretKeyRef: { name: medi-secrets, key: DB_NAME }
+              command:
+                - sh
+                - -c
+                - |
+                  set -eu
+                  stamp=$(TZ=Asia/Seoul date +%Y%m%d_%H%M%S)
+                  tmp=/backups/.db_$stamp.tmp
+                  trap 'rm -f "$tmp"' EXIT
+                  pg_dump -Fc -f "$tmp"
+                  pg_restore --list "$tmp" > /dev/null
+                  mv "$tmp" "/backups/db_$stamp.dump"
+                  ls -1t /backups/db_*.dump | tail -n +4 | xargs -r rm -f
+                  ls -l /backups
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 64Mi
+                limits:
+                  cpu: "1"
+                  memory: 256Mi
+              volumeMounts:
+                - name: backups
+                  mountPath: /backups
+          volumes:
+            - name: backups
+              hostPath:
+                path: BACKUP_DIR   # deploy.sh가 이 저장소의 backups/ 절대 경로로 바꿔요
+                type: Directory
