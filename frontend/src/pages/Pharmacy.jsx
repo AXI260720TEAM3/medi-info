@@ -6,6 +6,7 @@ import AlertBox from '../components/AlertBox'
 import { SIDO, SIGUNGU } from '../data/sigungu'
 import PharmacyMap from '../components/PharmacyMap'
 import { formatDistance } from '../utils/pharmacy'
+import PageTitle from '../components/PageTitle'
 
 const PAGE_SIZE = 10
 
@@ -194,15 +195,12 @@ function Pharmacy() {
   return (
     <div style={COLUMN}>
       {/* 제목 + 기준 시각 줄 */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <h1 className="title">{pageTitle(name, showAll)}</h1>
-        <p className="muted" style={{ margin: 0 }}>
-          {nowLabel()} 기준
-          {showResult && name !== '' && ` · ${answer.total}곳 · 문 연 곳 먼저`}
-          {showResult && name === '' && ` · ${showAll ? '약국' : '영업 중'} ${answer.total}곳 · ${near ? '가까운 순' : '이름순'}`}
-          {showResult && totalPages > 1 && ` · ${page} / ${totalPages}쪽`}
-        </p>
-      </div>
+      <PageTitle icon="pin" title={pageTitle(name, showAll)}>
+        {nowLabel()} 기준
+        {showResult && name !== '' && ` · ${answer.total}곳 · 문 연 곳 먼저`}
+        {showResult && name === '' && ` · ${showAll ? '약국' : '영업 중'} ${answer.total}곳 · ${near ? '가까운 순' : '이름순'}`}
+        {showResult && totalPages > 1 && ` · ${page} / ${totalPages}쪽`}
+      </PageTitle>
 
       {/* 검색 칸: 넓은 화면은 한 줄, 좁은 화면은 저절로 줄바꿈 */}
       <form className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 16 }} onSubmit={handleSearch}>

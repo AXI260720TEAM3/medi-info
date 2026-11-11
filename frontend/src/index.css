@@ -75,6 +75,43 @@ a:hover {
   font-weight: 800;
   letter-spacing: -0.04em;
 }
+/* 화면 맨 위 제목 띠 (PageTitle). 연한 파란 바탕 + 아이콘 상자 + 큰 제목 */
+.page-title {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 22px 24px;
+  border-radius: var(--radius-card);
+  background: var(--primary-bg);
+}
+.page-title-icon {
+  flex: none;
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  background: var(--primary);
+  color: #FFFFFF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.page-title-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.page-title-sub {
+  margin: 0;
+  font-size: 16px;
+  color: var(--text-muted);
+}
+@media (max-width: 480px) {   /* 휴대폰: 띠를 조금 작게 */
+  .page-title { padding: 16px; gap: 12px; align-items: flex-start; }
+  .page-title-icon { width: 44px; height: 44px; border-radius: 12px; }
+  .page-title .title { font-size: 26px; }
+}
+
 .card-title {     /* 카드 제목 */
   margin: 0;
   font-size: 19px;
