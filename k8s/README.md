@@ -8,20 +8,24 @@
                                             ▼
                               Traefik Ingress (k3s 기본)
                                ├ /api → backend (Deployment) ──┬─ db (StatefulSet + 저장 공간)
-                               └ /    → web (nginx + React)    └─ ollama (k8s 밖, 이 PC의 Ollama)
+                               │                               ├─ ollama (k8s 밖, 이 PC의 Ollama)
+                               │                               └─ ops (운영 API, k8s 권한은 이 파드만)
+                               └ /    → web (nginx + React)
                               CronJob privacy-purge: 매일 03:00 질문 기록 90일 정리
+                              CronJob dict-load: 멈춰 둔 설계도 (배포·운영 탭에서 Job으로 복사해 사전 적재)
 ```
 
 | 파일 | 내용 |
 |---|---|
 | `namespace.yaml` | `medi-info` 이름표 (같은 k3s의 automachine과 섞이지 않게) |
-| `config.yaml` | 비밀이 아닌 설정 (`DB_HOST`, `OLLAMA_URL`) |
+| `config.yaml` | 비밀이 아닌 설정 (`DB_HOST`, `OLLAMA_URL`, `OLLAMA_NUM_CTX`, `OPS_URL`, `ADMIN_HOSTS`) |
 | `db.yaml` | PostgreSQL + pgvector, 처음 켤 때 `db/init`의 SQL 실행 |
 | `ollama.yaml` | k8s 밖의 Ollama를 가리키는 주소록 (`10.42.0.1` = 파드에서 본 이 PC) |
 | `backend.yaml` | FastAPI, 상태 검사 3종, 무중단 배포(`preStop`) |
 | `web.yaml` | `frontend/Dockerfile.prod`로 만든 nginx 화면 |
 | `ingress.yaml` | `medi.localhost`의 `/api`·`/` 나누기 |
 | `privacy-cron.yaml` | 매일 질문 기록 정리 (PR #74) |
+| `ops.yaml` | 운영 API (관리자 화면 운영 탭). 전용 계정·권한(RBAC), 백엔드만 들어오게(NetworkPolicy) |
 | `dict-job.yaml` | 배포할 때마다 사전 적재 (`data/dict/*.csv` → 위험 증상·주의 대상·고정 문구·동의어). 이게 없으면 AI 답이 500 (고정 문구가 없어서) |
 | `deploy.sh` | 이미지 만들기 → 로컬 저장소에 올리기 → Secret 만들기 → 적용 |
 | `cluster/` | 클러스터에 **한 번만** 하는 설정 (아래) |
@@ -109,6 +113,45 @@ kubectl -n medi-info create job --from=cronjob/privacy-purge purge-now   # 질�
 kubectl -n medi-info logs job/purge-now
 ```
 
+## 관리자 화면 운영 탭 (ops)
+
+`http://medi.localhost/admin` → 운영 탭에서 kubectl 없이 할 수 있는 일:
+
+| 할 일 | 하는 일 |
+|---|---|
+| 상태 보기 | 워크로드별 준비 수·**버전(커밋번호)**, 파드 상태·재시작 횟수, 최근 사전 적재 3번, CronJob 마지막 실행 |
+| 다시 시작 | `backend`·`web`만 (`kubectl rollout restart`와 같음, 하나씩 갈아 끼워서 끊기지 않아요). db·ops는 안 돼요 |
+| 사전 다시 적재 | 멈춰 둔 `dict-load` CronJob을 복사해 Job을 만들어요. CSV는 **마지막 배포 때** 넣은 것이라, 새 CSV는 머지 뒤 `deploy.sh` |
+
+```
+[관리자 브라우저] → backend /api/admin/ops/* (관리자 로그인 확인) → ops:8000 (OPS_TOKEN 확인) → k8s API
+```
+
+- **k8s 권한은 ops 파드만** 가져요. 손님을 받는 backend는 권한이 없어서, backend가 뚫려도 k8s를 직접 만질 수 없어요. ops 권한에도 Secret 읽기·exec·지우기는 없어요.
+- ops에는 **backend 파드만** 들어올 수 있어요(NetworkPolicy). 같은 클러스터의 automachine 등은 막혀요.
+- `OPS_TOKEN`은 `deploy.sh`가 처음 한 번 무작위로 만들어 Secret `ops-token`에 넣어요(파일로 안 남김).
+- 관리자 API는 `ADMIN_HOSTS`(medi.localhost)로 온 요청만 받아요. **Funnel 주소로는 404**라 바깥에서는 관리자 화면이 없는 것처럼 보여요.
+- compose에는 ops가 없어서 운영 탭은 k8s에서만 돼요.
+
+## Ollama 문맥 길이 (`OLLAMA_NUM_CTX` = `OLLAMA_CONTEXT_LENGTH`)
+
+Ollama는 k8s 밖(WSL의 systemd 서비스)에서 돌아요. 백엔드가 보내는 `num_ctx`와 Ollama 서버의 기본 문맥 길이가 **같아야** 해요.
+
+- 값이 다르면 요청마다 모델을 다시 올려서 한 번에 30초씩 걸려요. 11/11에 10분 동안 34번이나 다시 올렸어요(팀원 코드는 값을 안 보내서 서버 기본값을 썼음).
+- 지금 값은 **16384**예요. `OLLAMA_NUM_PARALLEL=2`라 8192로 두면 질문 하나가 4096만 쓰고 공식 자료 뒷부분(규칙·복용방법)이 잘렸어요. 16384는 RTX 3060 8GB에 100% GPU로 들어가요.
+- k8s 백엔드는 `config.yaml`의 `OLLAMA_NUM_CTX`를 써요. **`.env` 값은 k8s에 안 들어와요**(`deploy.sh`는 비밀 값만 Secret에 넣음).
+
+```bash
+# 이 PC의 Ollama 서버 값 보기·바꾸기
+systemctl cat ollama | grep CONTEXT_LENGTH     # Environment="OLLAMA_CONTEXT_LENGTH=16384"
+sudo systemctl edit ollama                     # [Service] 아래 Environment="OLLAMA_CONTEXT_LENGTH=16384"
+sudo systemctl restart ollama
+ollama ps                                      # CONTEXT 16384, PROCESSOR 100% GPU 인지
+```
+
+- 값을 바꾸면 세 곳을 같이 바꿔요: Ollama 서버(`OLLAMA_CONTEXT_LENGTH`), `k8s/config.yaml`, 기본값(`backend/app/config.py`).
+- GPU가 작은 팀원 PC(compose)는 `.env`에 `OLLAMA_NUM_CTX=8192`, 그 PC의 Ollama에도 `OLLAMA_CONTEXT_LENGTH=8192`.
+
 ## 상태 검사 (probe)
 
 | 검사 | 주소 | 실패하면 |
@@ -129,6 +172,8 @@ Ollama는 검사하지 않아요. AI가 꺼져도 검색·약국·내 약은 돼
 | `http://medi.localhost`가 안 열림 | `kubectl -n kube-system get pods`에서 traefik이 Running인지, `traefik-config.yaml`을 적용했는지 |
 | 배포했는데 `ImagePullBackOff` | `docker start registry`, `registries.yaml`을 넣고 k3s를 다시 켰는지 |
 | 메모리가 모자람 (파드가 `Pending`·`OOMKilled`) | compose와 automachine을 껐는지. `free -h` |
+| AI 답이 매번 30초 넘게 걸림 | `ollama ps`의 CONTEXT가 16384가 아니거나 모델이 자꾸 다시 올라옴. 위 "Ollama 문맥 길이"대로 값 맞추기 |
+| 운영 탭이 "운영 API에 연결하지 못했어요" | `kubectl -n medi-info get pods`에서 ops가 Running인지, `kubectl -n medi-info logs deploy/ops` |
 | 화면 새로고침하면 404 | `frontend/nginx.conf`의 `try_files ... /index.html` |
 | Funnel 주소가 "no available server" | `.env`에 `FUNNEL_HOST`를 넣고 `deploy.sh`를 했는지 (없으면 automachine의 `/` 규칙으로 가요) |
 | Funnel 주소가 "사이트에 연결할 수 없음" | `tailscale funnel status`가 `No serve config`이면 `tailscale funnel --bg 80` |
