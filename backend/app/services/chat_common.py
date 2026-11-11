@@ -13,7 +13,7 @@
 import httpx
 from fastapi import HTTPException
 
-from ..config import OLLAMA_URL
+from ..config import OLLAMA_NUM_CTX, OLLAMA_URL
 
 
 MODEL = "qwen2.5:7b-instruct-q4_K_M"
@@ -57,7 +57,8 @@ def ollama_generate(
         "model": MODEL,
         "prompt": prompt,
         "stream": False,
-        "options": {"temperature": 0},
+        # num_ctx가 없으면 2048토큰에서 잘려 [반드시 지킬 규칙]과 복용방법이 버려졌어요 (11/11 레녹스정 용량을 지어냄)
+        "options": {"temperature": 0, "num_ctx": OLLAMA_NUM_CTX},
     }
 
     if json_mode:

@@ -24,9 +24,25 @@ from .safety import find_banned
 
 # 생성된 답변의 기계적 1차 검사: 의료적 정확성을 보증하지 않습니다.
 DOSE_PATTERN = re.compile(
-    r"\d+\s*(?:[~\-]\s*\d+\s*)?(?:정|알|회|mL|ml|mg|g)(?![A-Za-z0-9])",
+    # 11/11: "번"(하루 1~2번)이 없어서 지어낸 횟수가 검사를 지나갔어요. 허가정보의 전각 물결(60～120)도 함께
+    r"\d+\s*(?:[~\-～〜]\s*\d+\s*)?(?:정|알|회|번|캡슐|포|mL|ml|mg|g)(?![A-Za-z0-9])",
     re.IGNORECASE,
 )
+UNSUPPORTED_DOSE = "공식 자료에 없는 용량·횟수 숫자"
+
+
+DOSE_UNIT = re.compile(r"(정|알|회|번|캡슐|포|ml|mg|g)$", re.IGNORECASE)
+
+
+def _dose_numbers(text: str) -> set[str]:
+    """용량·횟수 표현을 '숫자+단위' 짝으로 (1회, 60mg, 3~4회 → 3회·4회). '번'은 '회'로 맞춰요
+    숫자만 비교하면 '하루 1~2번'이 자료의 다른 '2'와 겹쳐 통과해서, 단위까지 같이 봐요 (11/11)"""
+    pairs = set()
+    for match in DOSE_PATTERN.finditer(text.replace(",", "")):   # 4,000mg → 4000mg
+        expr = re.sub(r"\s+", "", match.group(0))
+        unit = DOSE_UNIT.search(expr).group(1).lower().replace("번", "회")
+        pairs.update(f"{n}{unit}" for n in re.findall(r"\d+", expr))
+    return pairs
 UNSAFE_ASSURANCE = re.compile(
     r"무조건\s*(?:안전|괜찮)|절대\s*안전|"
     r"부작용(?:이|은)?\s*없(?:어|습니다)|"
@@ -259,6 +275,10 @@ def _answer_from_official_info(
         if DOSE_PATTERN.search(text) and (personal or not DOSE_INTENT.search(question)):
             return "질문과 무관하거나 개인별 검증이 필요한 숫자·용량 표현"
 
+        # 용량을 물어서 숫자를 써도 되는 답이라도, 그 숫자가 공식 자료의 용량 표현에 있어야 해요 (11/11 "500mg", "하루 1~2번")
+        if _dose_numbers(text) - _dose_numbers(evidence):
+            return UNSUPPORTED_DOSE
+
         return None
 
     answer = ollama_generate(prompt)
@@ -272,6 +292,25 @@ def _answer_from_official_info(
 
     # 오탐 가능성이 있는 첫 답변을 그대로 폐기하지 않고, 동일한 공식 자료에서
     # 불필요한 숫자·복용 허가를 제외하여 한 번만 재생성합니다.
+    if reason == UNSUPPORTED_DOSE:
+        # 용량을 물은 일반 질문: 숫자를 빼라고 하면 답이 비어요. 공식 자료의 용법 문장을 그대로 옮기게 해요
+        repair_prompt = prompt + f"""
+
+[재작성 지시]
+앞선 초안이 다음 검증에 걸려 사용자에게 제공되지 않았습니다: {reason}.
+[공식 자료]의 복용방법 문장에 적힌 숫자와 단위만 그대로 옮겨 쓰세요. 자료에 없는 숫자는 쓰지 마세요.
+자료에서 찾을 수 없으면 확인할 수 없다고 말하세요. 자기 검증 과정에 관한 설명은 하지 마세요.
+"""
+        rewritten = ollama_generate(repair_prompt)
+        rewrite_reason = rejection_reason(rewritten)
+        if rewrite_reason is None:
+            return rewritten
+        logging.warning("AI 재생성 답변 검증 실패: %s", rewrite_reason)
+        return (
+            f"{drug['item_name']}의 공식 자료에서 질문하신 용법을 정확히 옮기지 못했어요. "
+            "약 상세 화면의 '이렇게 먹어요'를 확인하시거나 약사에게 물어봐 주세요."
+        )
+
     repair_prompt = prompt + f"""
 
 [재작성 지시]
