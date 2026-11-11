@@ -100,6 +100,7 @@ def _plain(number: str) -> str:
 def _number_units(text: str) -> list:
     """글에서 (숫자, 단위 종류) 목록. '10-20mg'처럼 범위면 두 숫자를 다 담는다"""
     pairs = []
+    text = re.sub(r"(?<=\d),(?=\d{3})", "", text)  # 자료의 '4,000mg'과 답의 '4000mg'을 같은 숫자로
     for low, high, unit in NUMBER_UNIT_PATTERN.findall(text):
         kind = UNIT_KINDS[unit.lower()] if unit.lower() in UNIT_KINDS else UNIT_KINDS[unit]
         pairs += [(_plain(n), kind) for n in (low, high) if n]
