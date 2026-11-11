@@ -59,9 +59,22 @@ kubectl -n $NS create configmap dict-data --from-file=data/dict \
 # Job은 한 번 끝나면 내용을 바꿀 수 없어서, 옛 것을 지우고 새로 만들어요
 kubectl -n $NS delete job dict-load --ignore-not-found
 
+# 관리자 화면은 평소 medi.localhost에서만 (Funnel 주소는 404). 다른 기기로 발표하는 날만 .env에 ADMIN_ON_FUNNEL=1
+# 끝나면 ADMIN_ON_FUNNEL을 지우고 다시 배포 + tailscale funnel reset
+ADMIN_HOSTS=medi.localhost
+if [ "${ADMIN_ON_FUNNEL:-}" = 1 ] && [ -n "${FUNNEL_HOST:-}" ]; then
+  ADMIN_HOSTS="medi.localhost,$FUNNEL_HOST"
+  echo "⚠ 관리자 화면을 Funnel 주소(인터넷 공개)에서도 열어요. 발표가 끝나면 .env의 ADMIN_ON_FUNNEL을 지우고 다시 배포하세요"
+fi
+OLD_ADMIN_HOSTS=$(kubectl -n $NS get configmap backend-config -o jsonpath='{.data.ADMIN_HOSTS}' 2>/dev/null || true)
+
 # 파일에는 :dev라고 적혀 있고, 배포할 때 이번 버전으로 바꿔요. 이름표가 바뀌면 k8s가 새 파드로 하나씩 갈아 끼워요
-kubectl kustomize k8s | sed "s#\(localhost:5000/medi-[a-z]*\):dev#\1:$TAG#" | kubectl apply -f -
+kubectl kustomize k8s | sed -e "s#\(localhost:5000/medi-[a-z]*\):dev#\1:$TAG#" -e "s#^\(  ADMIN_HOSTS:\) .*#\1 $ADMIN_HOSTS#" | kubectl apply -f -
 kubectl -n $NS annotate deploy backend web ops kubernetes.io/change-cause="$TAG" --overwrite
+# 환경 변수는 파드가 켜질 때 한 번 읽어요. 이미지가 같아도 ADMIN_HOSTS가 바뀌었으면 backend를 다시 켜요
+if [ -n "$OLD_ADMIN_HOSTS" ] && [ "$OLD_ADMIN_HOSTS" != "$ADMIN_HOSTS" ]; then
+  kubectl -n $NS rollout restart deploy/backend
+fi
 # 사전 적재: 멈춰 둔 CronJob 설계도로 이번 배포의 Job을 만들어요 (dict-job.yaml)
 kubectl -n $NS create job dict-load --from=cronjob/dict-load
 

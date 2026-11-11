@@ -87,6 +87,15 @@ tailscale funnel reset          # 끄기 (주소를 아는 누구나 들어올 �
 - 진짜 확인은 **휴대폰(와이파이·Tailscale 끄고 LTE)**으로 해요. 이 PC에서도 열려요.
 - Traefik은 PC의 443번을 잡지 않아요(`traefik-config.yaml`의 `websecure`를 8444번으로 옮김). 443번을 Traefik이 잡고 있으면, 이 PC에서 `https://○○.ts.net`을 열 때 Tailscale 대신 Traefik이 가짜 인증서(`TRAEFIK DEFAULT CERT`)로 대답해서 인증서 경고가 났어요 (11/09에 고침)
 - 카카오 지도를 쓰려면 카카오 개발자 사이트의 웹 도메인에 `https://○○.ts.net`도 추가해요.
+- 관리자 화면은 Funnel 주소에서 **404**예요(아래 운영 탭 절). 다른 기기(강의실 PC)로 발표하는 날만 이렇게 열어요:
+
+  ```bash
+  # 발표 전: 관리자 비밀번호를 길고 무작위로 바꾸기 (계정 찾기 → 비밀번호 재설정)
+  echo 'ADMIN_ON_FUNNEL=1' >> .env && bash k8s/deploy.sh     # ⚠ 경고가 나오면 열린 것
+  # 발표 뒤: 꼭 닫기
+  sed -i '/^ADMIN_ON_FUNNEL=/d' .env && bash k8s/deploy.sh   # Funnel 주소의 관리자 API가 다시 404
+  tailscale funnel reset                                      # (Windows PowerShell) 공개 주소 끄기
+  ```
 
 ## 버전과 되돌리기
 
