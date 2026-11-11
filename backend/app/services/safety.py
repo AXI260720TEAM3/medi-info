@@ -68,6 +68,56 @@ BANNED_PHRASES = [
     "갈필요없",                                               # 진료 말리기
 ]
 
+# AI 답변의 용량·횟수·나이 숫자를 공식 자료와 대조한다 (11/11 레녹스정 용량을 지어냄)
+# 숫자만 비교하면 긴 주의사항 속 '1.', '2.' 같은 숫자에 다 통과해서, 숫자와 단위 종류를 같이 본다
+# 단위 이름은 달라도 종류가 같으면 같은 것: 자료의 '1일 3회'를 답에서 '하루 3번'으로 써도 통과
+UNIT_KINDS = {
+    "mg": "무게", "g": "무게", "μg": "무게", "mcg": "무게", "밀리그람": "무게", "밀리그램": "무게", "그램": "무게",
+    "ml": "부피", "밀리리터": "부피",
+    "kg": "몸무게",
+    "정": "개수", "알": "개수", "캡슐": "개수", "포": "개수", "병": "개수",
+    "회": "횟수", "번": "횟수",
+    "시간": "시간",
+    "세": "나이", "살": "나이", "개월": "나이",
+    "일": "날",
+}
+NUMBER = r"\d+(?:\.\d+)?"
+UNIT_NAMES = "|".join(sorted(UNIT_KINDS, key=len, reverse=True))  # 긴 이름 먼저: 밀리그램이 g보다 먼저
+NUMBER_UNIT_PATTERN = re.compile(
+    rf"({NUMBER})(?:\s*[~\-～〜]\s*({NUMBER}))?\s*({UNIT_NAMES})(?![A-Za-z])", re.IGNORECASE
+)
+# '하루 세 번'처럼 한글로 쓴 횟수·개수
+KOREAN_NUMBER_PATTERN = re.compile(r"(한|두|세|네|다섯|여섯)\s*(번|회|알|정|캡슐|포)")
+KOREAN_NUMBERS = {"한": "1", "두": "2", "세": "3", "네": "4", "다섯": "5", "여섯": "6"}
+
+
+def _plain(number: str) -> str:
+    """'60.0' -> '60' (자료와 답이 소수점을 다르게 써도 같은 숫자로)"""
+    value = float(number)
+    return str(int(value)) if value.is_integer() else str(value)
+
+
+def _number_units(text: str) -> list:
+    """글에서 (숫자, 단위 종류) 목록. '10-20mg'처럼 범위면 두 숫자를 다 담는다"""
+    pairs = []
+    for low, high, unit in NUMBER_UNIT_PATTERN.findall(text):
+        kind = UNIT_KINDS[unit.lower()] if unit.lower() in UNIT_KINDS else UNIT_KINDS[unit]
+        pairs += [(_plain(n), kind) for n in (low, high) if n]
+    for word, unit in KOREAN_NUMBER_PATTERN.findall(text):
+        pairs.append((KOREAN_NUMBERS[word], UNIT_KINDS[unit]))
+    return pairs
+
+
+def find_unsupported_numbers(answer: str, allowed: str) -> list:
+    """AI 답변의 '숫자+단위' 중 allowed(공식 자료·질문·약 이름)에 같은 종류로 없는 것. 예: ['20 무게', '2 횟수']"""
+    allowed_pairs = set(_number_units(allowed))
+    missing = []
+    for number, kind in _number_units(answer):
+        label = f"{number} {kind}"
+        if (number, kind) not in allowed_pairs and label not in missing:
+            missing.append(label)
+    return missing
+
 
 def _load_danger_keywords():
     with SessionLocal() as db:

@@ -20,7 +20,7 @@ from .chat_common import (
     RELATED_FIELDS,
     ollama_generate,
 )
-from .safety import find_banned
+from .safety import find_banned, find_unsupported_numbers
 
 # 생성된 답변의 기계적 1차 검사: 의료적 정확성을 보증하지 않습니다.
 DOSE_PATTERN = re.compile(
@@ -268,6 +268,11 @@ def _answer_from_official_info(
 
         if find_banned(text):
             return "약 추천·진단·안전 단정 등 금지 표현"
+
+        # 답의 용량·횟수·나이 숫자가 [공식 자료]·질문·약 이름에 없으면 AI가 지어낸 숫자 (safety.py)
+        allowed = "\n".join((evidence, drug["item_name"], question, resolved_question))
+        if find_unsupported_numbers(text, allowed):
+            return "공식 자료에 없는 숫자"
 
         if UNSAFE_ASSURANCE.search(text) or (personal and PERSONAL_APPROVAL.search(text)):
             return "복용 안전성을 단정하는 표현"
