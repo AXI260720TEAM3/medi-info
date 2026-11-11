@@ -1,21 +1,11 @@
 import { useEffect, useState } from 'react'
 import Badge from '../components/Badge'
+import { REASONS, shortReason } from './adminCheckReasons'
 
 // 관리자 대시보드 "AI 답변 검증": AI가 쓴 답을 내보내기 전에 코드가 검사한 결과 (backend chat_answer.py)
 // 첫 답 통과 → 그대로 / 걸리면 한 번 다시 쓰게 함 → 또 걸리면 정해진 안내로 대체
 // 색: 통과는 파랑, 다시 써서 통과는 옅은 파랑, 대체는 회색(안전장치가 일한 것이지 고장이 아니라서). 막힌 사유 배지만 주의색
 
-// chat_answer.py의 사유 문장 → [짧은 이름, 쉬운 설명]. 모르는 사유는 원문 그대로 보여 줘요
-const REASONS = {
-  '공식 자료에 없는 숫자': ['자료에 없는 숫자', 'AI가 근거 자료에 없는 숫자를 썼어요'],
-  '공식 자료에 없는 용량·횟수 숫자': ['자료에 없는 용량·횟수', '용량을 물었는데 자료에 없는 정·회 숫자를 썼어요'],
-  '질문과 무관하거나 개인별 검증이 필요한 숫자·용량 표현': ['묻지 않은 숫자·용량', '묻지 않은 용량을 덧붙였거나, 개인 질문에 숫자를 썼어요'],
-  '복용 안전성을 단정하는 표현': ['복용 안전성 단정', '“드셔도 괜찮아요”처럼 단정했어요'],
-  '약 추천·진단·안전 단정 등 금지 표현': ['금지 표현', '약 추천·진단 같은 말을 썼어요'],
-  '공식 자료에 명시된 연령별 복용 금지 안내 누락': ['연령별 복용 금지 누락', '자료의 나이 제한을 빠뜨렸어요'],
-  '한자가 포함된 표현': ['한자 섞임', '服用처럼 한자가 들어갔어요'],
-}
-const shortReason = (r) => REASONS[r]?.[0] ?? r
 const RESULTS = {
   pass: { label: '첫 답 통과', color: 'var(--primary)' },
   retry_pass: { label: '다시 써서 통과', color: '#93C5FD' },
@@ -39,7 +29,7 @@ function ResultBadge({ result }) {
 }
 
 // 질문 하나의 검증 과정: 질문 → 막힌 첫 초안 → 다시 쓰기 → 결과
-function CheckDetail({ logId }) {
+export function CheckDetail({ logId }) {
   const [row, setRow] = useState(null)
   const [error, setError] = useState('')
   useEffect(() => {
@@ -82,11 +72,11 @@ function AdminAnswerChecks({ days }) {
   const [error, setError] = useState('')
   const [open, setOpen] = useState(null)   // 자세히 본 질문 기록 번호
 
+  // 기간을 바꾸면 새 값이 올 때까지 앞의 값을 보여 줘요 (effect 안에서 바로 setState하지 않아요)
   useEffect(() => {
-    setData(null)
-    setError('')
-    setOpen(null)
-    getJson(`/api/admin/answer-checks?days=${days}`).then(setData).catch((err) => setError(err.message))
+    getJson(`/api/admin/answer-checks?days=${days}`)
+      .then((d) => { setData(d); setError(''); setOpen(null) })
+      .catch((err) => setError(err.message))
   }, [days])
 
   return (

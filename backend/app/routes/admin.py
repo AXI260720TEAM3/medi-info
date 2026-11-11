@@ -22,37 +22,62 @@ from ..services.synonym import find_symptom
 # 주소 확인을 먼저: Funnel로 온 요청은 로그인 여부와 상관없이 404 (관리자 API가 있다는 것도 알리지 않아요)
 router = APIRouter(prefix="/api/admin", tags=["admin"], dependencies=[Depends(admin_host_only), Depends(require_admin)])
 
-# 질문 기록 거르기: 화면의 선택 상자와 같은 이름
+# 질문 기록 거르기: 화면의 결과 칩과 같은 이름. 정해진 글자만 SQL에 넣어요 (사용자 입력은 :q 같은 값으로만)
 FILTERS = {
     "all": "TRUE",
-    "blocked": "blocked",                 # 차단·안내로 돌린 질문 (위험 신호, 진단 요청 등)
-    "unclassified": "question_type IS NULL",  # 분류 못 한 질문 → 사전에 단어를 더할 후보
-    "reported": "reported OR feedback = -1",  # 사용자가 신고했거나 "도움 안 됨"
+    "blocked": "blocked",                             # 차단·안내 (위험 신호 119, 추천·진단 요청 거절)
+    "ask_drug": "question_type = '약확인'",            # 어느 약인지 되물음
+    "check_failed": "check_reason IS NOT NULL",       # AI 첫 답이 검증에 걸림 (다시 써서 통과 또는 대체)
+    "reported": "(reported OR feedback = -1)",        # 사용자가 신고했거나 "도움 안 됨"
+    "interaction": "question_type = '함께먹기'",       # 함께 먹기 판정 (DUR)
+    "unclassified": "question_type IS NULL",          # 그 밖에 종류를 못 정한 답
 }
 
 
 @router.get("/chat-logs")
 def chat_logs(
-    only: Literal["all", "blocked", "unclassified", "reported"] = "all",
-    limit: int = Query(50, ge=1, le=100),
+    only: Literal["all", "blocked", "ask_drug", "check_failed", "reported", "interaction", "unclassified"] = "all",
+    q: str = Query("", max_length=100),
+    days: int = Query(7, ge=1, le=90),   # 화면은 7·30·90 (Literal[7, 30, 90]은 주소의 "30"을 숫자로 못 바꿔서 422)
+    hide_test: bool = True,
+    limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
-    """H-1 질문 기록. 질문은 저장할 때 이미 개인정보 모양을 가려 둬요 (I-7)"""
-    where = FILTERS[only]   # 정해진 글자만 넣어요 (사용자 입력을 SQL에 직접 넣지 않아요)
+    """H-1 질문 기록 표. 질문은 저장할 때 이미 개인정보 모양을 가려 둬요 (I-7)
+    칩마다 건수(counts)는 기간·검색·시험 빼기를 적용한 범위에서 세요"""
+    base = ["created_at >= now() - make_interval(days => :days)"]
+    params = {"days": days, "limit": limit, "offset": offset}
+    if hide_test:
+        base.append("NOT is_test")
+    if q.strip():
+        # % _ 는 LIKE에서 특별한 글자라 그대로 찾도록 막아요
+        params["q"] = "%" + q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        base.append("(question ILIKE :q OR item_name ILIKE :q)")
+    base_where = " AND ".join(base)
+    counts_sql = ", ".join(f"count(*) FILTER (WHERE {cond}) AS {name}" for name, cond in FILTERS.items())
     with SessionLocal() as db:
-        total = db.execute(text(f"SELECT count(*) FROM chat_log WHERE {where}")).scalar_one()
+        counts = db.execute(text(f"SELECT {counts_sql} FROM chat_log WHERE {base_where}"), params).mappings().one()
+        hidden = db.execute(text(
+            "SELECT count(*) FROM chat_log WHERE is_test AND created_at >= now() - make_interval(days => :days)"
+        ), {"days": days}).scalar_one() if hide_test else 0
         rows = db.execute(
             text(f"""
-                SELECT log_id, question, answer, question_type, target_item_seq,
-                       blocked, block_reason, feedback, reported, created_at
+                SELECT log_id, question, answer, question_type, target_item_seq, item_name,
+                       blocked, block_reason, feedback, reported, response_ms, created_at,
+                       check_result, check_reason, retry_ms, is_test
                 FROM chat_log
-                WHERE {where}
+                WHERE {base_where} AND {FILTERS[only]}
                 ORDER BY log_id DESC
                 LIMIT :limit OFFSET :offset
             """),
-            {"limit": limit, "offset": offset},
+            params,
         ).mappings().all()
-    return {"total": total, "items": [dict(row) for row in rows]}
+    return {
+        "total": counts[only],
+        "counts": dict(counts),
+        "hidden_test": hidden,
+        "items": [{**row, "created_at": row["created_at"].isoformat()} for row in rows],
+    }
 
 
 # H-2 사전 보기. 원본은 data/dict/*.csv (PR로 고쳐요). 여기서는 지금 DB에 들어 있는 내용을 보여 줘요
@@ -169,7 +194,7 @@ def _daily_counts(db, days):
                count(*) AS total,
                count(*) FILTER (WHERE blocked) AS blocked
         FROM chat_log
-        WHERE created_at >= now() - make_interval(days => :days)
+        WHERE created_at >= now() - make_interval(days => :days) AND NOT is_test
         GROUP BY day
     """), {"days": days}).mappings().all()
     return {row["day"]: (row["total"], row["blocked"]) for row in rows}
@@ -182,13 +207,14 @@ def dashboard(days: int = Query(7, ge=1, le=90)):
         totals = db.execute(text("""
             SELECT count(*) AS questions,
                    count(*) FILTER (WHERE blocked) AS blocked,
+                   count(*) FILTER (WHERE question_type = '약확인') AS ask_drug,
                    count(*) FILTER (WHERE question_type IS NULL) AS unclassified,
                    count(*) FILTER (WHERE reported OR feedback = -1) AS reported
-            FROM chat_log WHERE created_at >= now() - make_interval(days => :days)
+            FROM chat_log WHERE created_at >= now() - make_interval(days => :days) AND NOT is_test
         """), {"days": days}).mappings().one()
         types = db.execute(text("""
             SELECT coalesce(question_type, '분류 못 함') AS type, count(*) AS count
-            FROM chat_log WHERE created_at >= now() - make_interval(days => :days)
+            FROM chat_log WHERE created_at >= now() - make_interval(days => :days) AND NOT is_test
             GROUP BY 1 ORDER BY 2 DESC
         """), {"days": days}).mappings().all()
         response = db.execute(text("""
@@ -196,7 +222,7 @@ def dashboard(days: int = Query(7, ge=1, le=90)):
                    round(avg(response_ms)) AS avg_ms,
                    round(percentile_cont(0.95) WITHIN GROUP (ORDER BY response_ms)) AS p95_ms
             FROM chat_log
-            WHERE created_at >= now() - make_interval(days => :days) AND response_ms IS NOT NULL
+            WHERE created_at >= now() - make_interval(days => :days) AND NOT is_test AND response_ms IS NOT NULL
               AND NOT blocked   -- 차단은 AI를 안 불러서 빨라요. 섞으면 평균이 실제보다 좋아 보여요
         """), {"days": days}).mappings().one()
 
@@ -229,20 +255,20 @@ def answer_checks(days: int = Query(7, ge=1, le=90)):
                    count(*) FILTER (WHERE check_result = 'fallback') AS fallback,
                    count(*) FILTER (WHERE check_result IS NULL) AS no_ai,
                    round(avg(retry_ms)) AS retry_ms_avg
-            FROM chat_log WHERE created_at >= now() - make_interval(days => :days)
+            FROM chat_log WHERE created_at >= now() - make_interval(days => :days) AND NOT is_test
         """), period).mappings().one()
         reasons = db.execute(text("""
             SELECT check_reason AS reason, count(*) AS n,
                    count(*) FILTER (WHERE check_result = 'retry_pass') AS saved,
                    count(*) FILTER (WHERE check_result = 'fallback') AS replaced
             FROM chat_log
-            WHERE created_at >= now() - make_interval(days => :days) AND check_reason IS NOT NULL
+            WHERE created_at >= now() - make_interval(days => :days) AND NOT is_test AND check_reason IS NOT NULL
             GROUP BY 1 ORDER BY 2 DESC, 1
         """), period).mappings().all()
         recent = db.execute(text("""
             SELECT log_id, question, check_reason, check_result, created_at
             FROM chat_log
-            WHERE created_at >= now() - make_interval(days => :days) AND check_reason IS NOT NULL
+            WHERE created_at >= now() - make_interval(days => :days) AND NOT is_test AND check_reason IS NOT NULL
             ORDER BY created_at DESC LIMIT 5
         """), period).mappings().all()
     return {

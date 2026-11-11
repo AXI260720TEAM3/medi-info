@@ -22,7 +22,7 @@ import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from ..services.chat_common import SOURCE, DRUG_FIELDS, FOLLOWUPS
@@ -201,14 +201,19 @@ def make_reply(
         result["category"] = category
     return result
 
-def save_chat_log(question: str, result: dict, level: str, response_ms: int | None = None, check: dict | None = None):
+def save_chat_log(question: str, result: dict, level: str, response_ms: int | None = None,
+                  check: dict | None = None, meta: dict | None = None):
     """check: AI 답변 검증 기록 (chat_answer._answer_from_official_info가 채움). AI를 안 부른 답은 비어 있어요
-    막힌 초안은 사용자에게 보내지 않고 여기에만 남겨요. 질문처럼 개인정보 모양은 가리고, 90일 뒤 함께 지워요(privacy.py)"""
+    막힌 초안은 사용자에게 보내지 않고 여기에만 남겨요. 질문처럼 개인정보 모양은 가리고, 90일 뒤 함께 지워요(privacy.py)
+    meta: is_test(평가·시험 요청, X-Medi-Test 헤더), question_type(약확인처럼 답을 만든 쪽이 정한 종류)"""
     check = check or {}
+    meta = meta or {}
     blocked = level in ("block", "redirect") or result.get("risk") == "위험 상황"
 
     if blocked:
         question_type = "차단"
+    elif meta.get("question_type"):
+        question_type = meta["question_type"]   # 약확인: 어느 약인지 되물은 답 (ask_which_drug)
     elif result.get("category") == "상호작용":
         question_type = "함께먹기"
     elif result.get("item_seq"):
@@ -220,10 +225,10 @@ def save_chat_log(question: str, result: dict, level: str, response_ms: int | No
         db.execute(
             text("""
                 INSERT INTO chat_log
-                (question, answer, question_type, target_item_seq, blocked, block_reason, response_ms,
+                (question, answer, question_type, target_item_seq, item_name, is_test, blocked, block_reason, response_ms,
                  check_result, check_reason, retry_reason, rejected_draft, retry_ms)
                 VALUES
-                (:question, :answer, :question_type, :item_seq, :blocked, :block_reason, :response_ms,
+                (:question, :answer, :question_type, :item_seq, :item_name, :is_test, :blocked, :block_reason, :response_ms,
                  :check_result, :check_reason, :retry_reason, :rejected_draft, :retry_ms)
             """),
             {
@@ -231,6 +236,8 @@ def save_chat_log(question: str, result: dict, level: str, response_ms: int | No
                 "answer": result["answer"],
                 "question_type": question_type,
                 "item_seq": result.get("item_seq"),
+                "item_name": result.get("item_name"),   # 관리자 질문 기록 표의 '약' 칸
+                "is_test": bool(meta.get("is_test")),
                 "blocked": blocked,
                 "block_reason": level if blocked else None,
                 "response_ms": response_ms,   # 질문을 받은 때부터 답을 만들 때까지 (관리자 대시보드 H-4)
@@ -261,7 +268,11 @@ def redirect_drugs(question: str) -> list[dict]:
 
 
 @router.post("/ask")
-def ask(data: AskRequest, user: dict | None = Depends(get_optional_user)):
+def ask(
+    data: AskRequest,
+    user: dict | None = Depends(get_optional_user),
+    x_medi_test: str | None = Header(default=None),   # 평가 스크립트·시험 요청이 "1"을 붙여요 → 관리자 기록에서 빼요
+):
     started = time.monotonic()
     question = data.question.strip()
     if not question:
@@ -297,6 +308,8 @@ def ask(data: AskRequest, user: dict | None = Depends(get_optional_user)):
 
     # AI 답변 검증 기록: AI를 부를 때만 채워지고, 질문 기록에만 저장해요 (응답에는 넣지 않아요. 막힌 초안이 들어 있어서)
     answer_check: dict = {}
+    # 질문 기록에만 쓰는 정보 (응답에는 안 넣어요)
+    log_meta: dict = {"is_test": x_medi_test == "1"}
 
     def reply(*args, **kwargs):
         result = {**make_reply(*args, **kwargs), **extras}
@@ -311,9 +324,14 @@ def ask(data: AskRequest, user: dict | None = Depends(get_optional_user)):
             result["answer"] += "\n\n" + safety["message"]
 
         result["answer"] = add_disclaimer(result["answer"])
-        save_chat_log(question, result, level, round((time.monotonic() - started) * 1000), answer_check)
+        save_chat_log(question, result, level, round((time.monotonic() - started) * 1000), answer_check, log_meta)
         return result
-    
+
+    def ask_which_drug(answer: str):
+        """어느 약인지 되묻는 답. 질문 기록에 '약확인'으로 남겨요 (예전에는 '분류 못 함'으로 섞였어요)"""
+        log_meta["question_type"] = "약확인"
+        return reply(answer, risk=risk)
+
     def emergency_reply(answer: str, source: str | None = None):
         result = {**make_reply(
             answer,
@@ -322,7 +340,7 @@ def ask(data: AskRequest, user: dict | None = Depends(get_optional_user)):
         ), **extras}
 
         try:
-            save_chat_log(question, result, "block", round((time.monotonic() - started) * 1000))
+            save_chat_log(question, result, "block", round((time.monotonic() - started) * 1000), meta=log_meta)
         except Exception:
             logging.exception("응급 질문 기록 저장 실패")
 
@@ -443,10 +461,7 @@ def ask(data: AskRequest, user: dict | None = Depends(get_optional_user)):
         except httpx.HTTPError as exc:
             raise HTTPException(status_code=503, detail="약 정보 서버가 응답하지 않아요.") from exc
         
-        result = reply(
-            "검색된 약 중 정확한 제품을 선택해 주세요.",
-            risk=risk,
-        )
+        result = ask_which_drug("검색된 약 중 정확한 제품을 선택해 주세요.")
         result["total"] = total
         result["items"] = items
         return result
@@ -466,7 +481,7 @@ def ask(data: AskRequest, user: dict | None = Depends(get_optional_user)):
             target_item_seq = str(pick["item_seq"])
         else:
             extras["candidates"] = [_ref(c) for c in candidates]
-            result = reply("같은 이름의 약이 여러 개예요. 어느 약인지 골라 주세요.", risk=risk)
+            result = ask_which_drug("같은 이름의 약이 여러 개예요. 어느 약인지 골라 주세요.")
             # 옛 화면용 목록 (계약 7장 5단계에서 지움)
             result["total"] = len(candidates)
             result["items"] = candidates
@@ -488,10 +503,7 @@ def ask(data: AskRequest, user: dict | None = Depends(get_optional_user)):
 
     if named_status == "none" and named.get("name") and not current_seq:
         # 약 이름을 적었는데 찾지 못했고, 대신 답할 지금 약도 없음
-        return reply(
-            "질문에서 정확한 의약품을 찾지 못했어요. 약 이름을 확인하거나 검색에서 제품을 선택해 주세요.",
-            risk=risk,
-        )
+        return ask_which_drug("질문에서 정확한 의약품을 찾지 못했어요. 약 이름을 확인하거나 검색에서 제품을 선택해 주세요.")
 
     # 코드가 못 찾았을 때만 AI의 약 유지·변경·확인 판단을 써요
     drug_action = analysis["drug_action"]
@@ -499,10 +511,9 @@ def ask(data: AskRequest, user: dict | None = Depends(get_optional_user)):
     if target_item_seq is None and (drug_action == "clarify" or (
         drug_action == "keep" and not current_seq
     )):
-        return reply(
+        return ask_which_drug(
             "어떤 약에 대한 질문인지 확인이 필요해요. "
-            "정확한 제품명을 알려주시거나 제품을 선택해 주세요.",
-            risk=risk,
+            "정확한 제품명을 알려주시거나 제품을 선택해 주세요."
         )
 
     # 기존 약 유지 또는 새로운 약 검색
@@ -543,10 +554,7 @@ def ask(data: AskRequest, user: dict | None = Depends(get_optional_user)):
         elif status == "ambiguous":
             items = search_result.get("candidates") or []
             extras["candidates"] = [_ref(c) for c in items]
-            result = reply(
-                "검색된 약 중 정확한 제품을 선택해 주세요.",
-                risk=risk,
-            )
+            result = ask_which_drug("검색된 약 중 정확한 제품을 선택해 주세요.")
             result["total"] = len(items)
             result["items"] = items
             result["items_note"] = (
@@ -557,10 +565,7 @@ def ask(data: AskRequest, user: dict | None = Depends(get_optional_user)):
             return result
 
         elif status == "none":
-            return reply(
-                "질문에서 정확한 의약품을 찾지 못했어요. 약 이름을 확인하거나 검색에서 제품을 선택해 주세요.",
-                risk=risk,
-            )
+            return ask_which_drug("질문에서 정확한 의약품을 찾지 못했어요. 약 이름을 확인하거나 검색에서 제품을 선택해 주세요.")
 
         else:
             raise HTTPException(

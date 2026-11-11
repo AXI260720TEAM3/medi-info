@@ -133,7 +133,8 @@ function AdminDashboard() {
         <div className="admin-stats">
           <Stat label="질문" value={`${data.totals.questions}건`} />
           <Stat label="차단·안내" value={`${data.totals.blocked}건`} />
-          <Stat label="분류 못 함" value={`${data.totals.unclassified}건`} note="사전 보강 후보" />
+          <Stat label="약 되물음" value={`${data.totals.ask_drug}건`} note="약 이름만 적었거나 같은 이름이 여러 개" />
+          <Stat label="분류 못 함" value={`${data.totals.unclassified}건`} note="그 밖에 종류를 못 정한 답" />
           <Stat label="신고·도움 안 됨" value={`${data.totals.reported}건`} />
           <Stat label="평균 응답" value={data.response.avg_ms != null ? `${(data.response.avg_ms / 1000).toFixed(1)}초` : '-'}
             note={data.response.p95_ms != null ? `느린 5%는 ${(data.response.p95_ms / 1000).toFixed(1)}초 넘게 (차단 제외 ${data.response.measured}건)` : '아직 잰 기록이 없어요'} />
