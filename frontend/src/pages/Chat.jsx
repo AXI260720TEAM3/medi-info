@@ -244,11 +244,9 @@ export default function Chat() {
         질문에 약 이름을 쓰면 아래 목록에 담겨요. 약을 여러 개 담아 두고 골라 가며 물어볼 수 있어요.
       </PageTitle>
 
-      {/* 🔴 자동 알림: 묻지 않아도, 함께 먹으면 안 되는 짝만 (🟡는 물었을 때만) */}
-      {drugs.length >= 2 && band.key === listKey && (
-        <MedCheckResult answer={band.answer} levels={['block']} emptyText={null} showCount={false} showNote={false} />
-      )}
-
+      {/* 화면 4단계 (11/11): 넓은 화면은 왼쪽에 '이 대화의 약'·사진, 오른쪽에 대화. 좁은 화면은 약이 위, 대화가 아래 */}
+      <div className="chat-layout">
+      <aside className="chat-side">
       <ChatDrugChips
         drugs={drugs}
         currentSeq={currentSeq}
@@ -261,25 +259,20 @@ export default function Chat() {
       />
 
       <ChatScan selectedSeq={currentSeq} onPick={(d) => pickDrug({ item_seq: d.itemSeq, item_name: d.drugName })} />
+      </aside>
 
-      <div className="card" aria-label="채팅 대화" style={{ display: 'flex', flexDirection: 'column', gap: 12, minHeight: 280 }}>
+      <div className="chat-main">
+      {/* 🔴 자동 알림: 묻지 않아도, 함께 먹으면 안 되는 짝만 (🟡는 물었을 때만) */}
+      {drugs.length >= 2 && band.key === listKey && (
+        <MedCheckResult answer={band.answer} levels={['block']} emptyText={null} showCount={false} showNote={false} />
+      )}
+
+      <div className="card chat-thread" aria-label="채팅 대화">
         {messages.length === 0 && !pendingQuestion && (
           <p className="muted">의약품의 효능, 복용방법, 주의사항 등을 질문해 보세요.</p>
         )}
         {messages.map((message, index) => (
-          <div
-            key={index}
-            style={{
-              alignSelf: message.role === 'user' ? 'flex-end' : 'flex-start',
-              maxWidth: '90%',
-              padding: '12px 14px',
-              border: '1px solid var(--border)',
-              borderRadius: 'var(--radius)',
-              background: message.role === 'user' ? 'var(--primary-bg)' : 'var(--surface)',
-              whiteSpace: 'pre-wrap',
-              overflowWrap: 'anywhere',
-            }}
-          >
+          <div key={index} className={message.role === 'user' ? 'chat-msg is-user' : 'chat-msg is-assistant'}>
           {message.role === 'assistant' &&
             message.risk === '위험 상황' && (
               <strong>긴급 안내</strong>
@@ -346,9 +339,7 @@ export default function Chat() {
       ))}
 
         {pendingQuestion && (
-          <div style={{ alignSelf: 'flex-end', maxWidth: '90%', padding: '12px 14px', background: 'var(--primary-bg)', borderRadius: 'var(--radius)', whiteSpace: 'pre-wrap' }}>
-            {pendingQuestion}
-          </div>
+          <div className="chat-msg is-user">{pendingQuestion}</div>
         )}
         {loading && <p className="muted" role="status">답변을 만드는 중이에요…</p>}
         <div ref={bottomRef} />
@@ -361,7 +352,7 @@ export default function Chat() {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} style={{ display: 'flex', gap: 8 }}>
+      <form onSubmit={handleSubmit} className="chat-form">
         <input
           className="input"
           aria-label="의약품 질문 입력"
@@ -370,15 +361,16 @@ export default function Chat() {
           onChange={(event) => setDraft(event.target.value)}
           disabled={loading}
           maxLength={1000}
-          style={{ flex: 1, minWidth: 0, minHeight: 44 }}
         />
         <button type="submit" className="btn btn-primary" disabled={loading || !draft.trim()}>
           전송
         </button>
       </form>
-      <p className="muted" style={{ marginTop: 0 }}>
+      <p className="muted" style={{ margin: 0 }}>
         이 답변은 진단이나 처방이 아니에요. 현재 대화는 이 화면에서만 유지됩니다.
       </p>
+      </div>
+      </div>
     </section>
   )
 }

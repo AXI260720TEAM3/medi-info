@@ -554,6 +554,72 @@ a.source-chip:hover{
 .admin-bar-label { font-size: 0.7rem; color: var(--text-muted); margin-top: 4px; white-space: nowrap; }
 
 /* AI 질문 "이 대화의 약" 칩 (ChatDrugChips.jsx, Chat.jsx 후보) */
+/* AI 질문 화면 (화면 4단계): 넓으면 왼쪽 약·사진, 오른쪽 대화 / 좁으면 위아래 */
+.chat-layout {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  align-items: flex-start;
+}
+.chat-side {
+  flex: 1 1 300px;
+  max-width: 380px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.chat-main {
+  flex: 999 1 520px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+@media (max-width: 900px) {
+  .chat-side { max-width: none; }
+}
+.chat-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-height: 320px;
+  padding: 22px;
+}
+.chat-msg {
+  max-width: 88%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.7;
+}
+.chat-msg.is-user {          /* 내 질문: 오른쪽 회색 말풍선 */
+  align-self: flex-end;
+  padding: 12px 18px;
+  border-radius: 16px 16px 4px 16px;
+  background: var(--surface-muted);
+}
+.chat-msg.is-assistant {     /* 답: 상자 없이 글로, 왼쪽에 얇은 파란 선 */
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 2px 0 2px 16px;
+  border-left: 3px solid var(--primary-bg);
+}
+.chat-form {
+  display: flex;
+  gap: 8px;
+}
+.chat-form .input {
+  flex: 1;
+  min-width: 0;
+  min-height: 54px;
+  font-size: 18px;
+}
+.chat-form .btn {
+  min-height: 54px;
+  padding: 0 26px;
+  font-size: 17px;
+}
+
 .drug-chips-card {
   display: flex;
   flex-direction: column;
