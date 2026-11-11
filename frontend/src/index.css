@@ -333,22 +333,49 @@ a:hover {
   box-shadow: inset 0 -3px 0 var(--primary);
 }
 
-/* 휴대폰: 1줄 로고 + 로그인, 2줄 메뉴 (넘치면 옆으로 밀어 봐요) */
+/* 휴대폰 아래 탭 (화면 5단계): 넓은 화면에서는 숨겨요 */
+.tabbar {
+  display: none;
+}
+/* 휴대폰: 위쪽은 로고 + 로그인 한 줄, 메뉴는 화면 아래에 고정한 탭 */
 @media (max-width: 640px) {
   .header-inner {
-    flex-wrap: wrap;
     padding: 0 16px;
     min-height: 0;
   }
   .logo { padding: 12px 0; }
-  .nav {
-    order: 3;
-    flex: 1 0 100%;
-    gap: 22px;
-    overflow-x: auto;
+  .nav { display: none; }
+  .tabbar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 50;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    background: var(--surface);
     border-top: 1px solid var(--border);
+    padding-bottom: env(safe-area-inset-bottom);   /* 아이폰 홈 막대에 가리지 않게 */
   }
-  .nav a { min-height: 50px; font-size: 17px; }
+  .tabbar a {
+    min-height: 62px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-muted);
+  }
+  .tabbar a:hover { text-decoration: none; }
+  .tabbar a.active {
+    color: var(--primary-text);
+    font-weight: 800;
+  }
+  body {                      /* 고정한 탭이 맨 아래 내용(아래 안내)을 가리지 않게 */
+    padding-bottom: calc(62px + env(safe-area-inset-bottom));
+  }
 }
 
 .footer {
