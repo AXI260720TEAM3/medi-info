@@ -29,20 +29,6 @@ DOSE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 UNSUPPORTED_DOSE = "공식 자료에 없는 용량·횟수 숫자"
-
-
-DOSE_UNIT = re.compile(r"(정|알|회|번|캡슐|포|ml|mg|g)$", re.IGNORECASE)
-
-
-def _dose_numbers(text: str) -> set[str]:
-    """용량·횟수 표현을 '숫자+단위' 짝으로 (1회, 60mg, 3~4회 → 3회·4회). '번'은 '회'로 맞춰요
-    숫자만 비교하면 '하루 1~2번'이 자료의 다른 '2'와 겹쳐 통과해서, 단위까지 같이 봐요 (11/11)"""
-    pairs = set()
-    for match in DOSE_PATTERN.finditer(text.replace(",", "")):   # 4,000mg → 4000mg
-        expr = re.sub(r"\s+", "", match.group(0))
-        unit = DOSE_UNIT.search(expr).group(1).lower().replace("번", "회")
-        pairs.update(f"{n}{unit}" for n in re.findall(r"\d+", expr))
-    return pairs
 UNSAFE_ASSURANCE = re.compile(
     r"무조건\s*(?:안전|괜찮)|절대\s*안전|"
     r"부작용(?:이|은)?\s*없(?:어|습니다)|"
@@ -269,20 +255,19 @@ def _answer_from_official_info(
         if find_banned(text):
             return "약 추천·진단·안전 단정 등 금지 표현"
 
-        # 답의 용량·횟수·나이 숫자가 [공식 자료]·질문·약 이름에 없으면 AI가 지어낸 숫자 (safety.py)
-        allowed = "\n".join((evidence, drug["item_name"], question, resolved_question))
-        if find_unsupported_numbers(text, allowed):
-            return "공식 자료에 없는 숫자"
-
         if UNSAFE_ASSURANCE.search(text) or (personal and PERSONAL_APPROVAL.search(text)):
             return "복용 안전성을 단정하는 표현"
 
         if DOSE_PATTERN.search(text) and (personal or not DOSE_INTENT.search(question)):
             return "질문과 무관하거나 개인별 검증이 필요한 숫자·용량 표현"
 
-        # 용량을 물어서 숫자를 써도 되는 답이라도, 그 숫자가 공식 자료의 용량 표현에 있어야 해요 (11/11 "500mg", "하루 1~2번")
-        if _dose_numbers(text) - _dose_numbers(evidence):
-            return UNSUPPORTED_DOSE
+        # 답의 용량·횟수·나이 숫자가 [공식 자료]·질문·약 이름에 없으면 AI가 지어낸 숫자 (safety.py, #102)
+        # 용량을 물은 일반 질문이면 UNSUPPORTED_DOSE로 돌려줘서 "자료의 용법 문장을 옮겨 쓰라"는 재작성을 받게 해요
+        allowed = "\n".join((evidence, drug["item_name"], question, resolved_question))
+        if find_unsupported_numbers(text, allowed):
+            if not personal and DOSE_INTENT.search(question):
+                return UNSUPPORTED_DOSE
+            return "공식 자료에 없는 숫자"
 
         return None
 
