@@ -5,6 +5,8 @@ import Loading from '../components/Loading'
 import MedCheck from '../components/MedCheck'
 import MedProfile from '../components/MedProfile'
 import MedScan from '../components/MedScan'
+import MedHistory from '../components/MedHistory'
+import MedReminder from '../components/MedReminder'
 
 // 성분 칸 글자: 불러오는 중, 조회 실패, 정보 없음을 구분해요
 function ingredientText(ingredients, itemSeq) {
@@ -110,6 +112,9 @@ function MyMeds() {
         </table>
       </div>
     )}
+
+    <MedHistory meds={meds} />
+    <MedReminder />
   </>)
 }
 export default MyMeds
