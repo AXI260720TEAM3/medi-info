@@ -21,7 +21,8 @@ for row in questions:
     req = request.Request(
         API_URL,
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        # X-Medi-Test: 평가 질문이라고 알려서 관리자 질문 기록·통계에서 빼요 (routes/chat.py)
+        headers={"Content-Type": "application/json", "X-Medi-Test": "1"},
         method="POST",
     )
 

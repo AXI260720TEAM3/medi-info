@@ -124,7 +124,7 @@ function BackupPanel() {
 
   const load = useCallback(() => {
     call('GET', '/api/admin/ops/backups')
-      .then((d) => { setData(d); setError('') })
+      .then((d) => { setData({ ...d, loadedAt: Date.now() }); setError('') })   // 지금 시각은 그릴 때가 아니라 받은 때 재요
       .catch((err) => setError(err.message))
   }, [])
   useEffect(() => { load() }, [load])
@@ -147,7 +147,7 @@ function BackupPanel() {
   if (!data) return <section className="card"><h2>백업과 저장 공간</h2><p>불러오는 중...</p></section>
 
   const newest = data.files[0]
-  const ageHours = newest ? (Date.now() - new Date(newest.at)) / 36e5 : null
+  const ageHours = newest ? (data.loadedAt - new Date(newest.at)) / 36e5 : null
   const capacity = toMib(data.pvc_capacity)
   const usedPct = capacity ? Math.min(100, (data.db_size_mib / capacity) * 100) : null
   const last = data.last_job
