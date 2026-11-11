@@ -16,18 +16,14 @@ const COLUMN = { display: 'flex', flexDirection: 'column', gap: 16 }
 const mapLink = p => `https://map.kakao.com/link/map/${encodeURIComponent(p.name)},${p.lat},${p.lon}`
 
 
-// 카드 둘째 줄 (시안: "350m · 오늘 23:00까지"). 지역 검색은 거리가 없어요
-// 영업 중:          "70m · 오늘 23:00까지"
-// 오늘 하는데 닫힘: "120m · 지금 영업 안 함 · 오늘 09:00~19:00"
-// 오늘 쉼:          "300m · 오늘 쉬어요"
-function infoLine(p) {
-  let state
-  if (p.is_open) state = p.close_label
-  else if (p.today_hours) state = `지금 영업 안 함 · 오늘 ${p.today_hours}`
-  else state = '오늘 쉬어요'
-
-  if (p.distance) return `${formatDistance(p.distance)} · ${state}`
-  return state
+// 영업 상태 줄 (화면 4단계: 거리와 따로 크게 보여 줘요)
+// 영업 중:          "영업 중 · 오늘 23:00까지"
+// 오늘 하는데 닫힘: "지금 영업 안 함 · 오늘 09:00~19:00"
+// 오늘 쉼:          "오늘 쉬어요"
+function statusText(p) {
+  if (p.is_open) return `영업 중 · ${p.close_label}`
+  if (p.today_hours) return `지금 영업 안 함 · 오늘 ${p.today_hours}`
+  return '오늘 쉬어요'
 }
 
 // "금요일 22:40" (시안의 기준 시각 줄)
@@ -37,8 +33,8 @@ function nowLabel() {
   return `${DAYS[d.getDay()]} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
-const TOOL = { minHeight: 44, display: 'flex', alignItems: 'center', gap: 6, padding: '0 14px', fontSize: 15 }
-const FIELD = { flex: '1 1 150px', minWidth: 0, width: 'auto', fontSize: 15 }   // 검색 칸 하나 (.input의 width 100%를 풀어요)
+const TOOL = { minHeight: 52, display: 'flex', alignItems: 'center', gap: 6, padding: '0 16px', fontSize: 17 }
+const FIELD = { flex: '1 1 150px', minWidth: 0, width: 'auto', minHeight: 52, fontSize: 17 }   // 검색 칸 하나 (.input의 width 100%를 풀어요)
 
 // 화면 제목: 무엇을 찾는 중인지에 맞춰요
 //   이름 검색 -> "'온누리' 약국",  문 닫은 곳도 보기 -> "약국 찾기",  그 밖 -> "지금 문 연 약국"
@@ -48,8 +44,6 @@ function pageTitle(name, showAll) {
   return '지금 문 연 약국'
 }
 const HIDDEN = { position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }
-const NUMBER = { width: 30, height: 30, flex: 'none', borderRadius: 15, background: 'var(--text)', color: '#FFFFFF', fontSize: 14, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }
-const CARD = { display: 'flex', alignItems: 'center', gap: 12, padding: 16 }
 // 시/도의 시/군/구 목록. '전국'('')처럼 목록에 없는 시/도면 빈 목록
 const sigunguOf = sido => SIGUNGU[sido] ?? []
 
@@ -184,13 +178,6 @@ function Pharmacy() {
     document.getElementById(`pharmacy-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
   }
 
-  // 문 닫은 약국 카드는 회색 바탕으로 (문 닫은 곳도 볼 때만 섞여 나와요)
-  const cardStyle = p => {
-    if (p.is_open)
-      return { ...CARD, background: 'var(--surface)'}
-    return { ...CARD, background: 'var(--surface-muted)'}
-      
-  }
 
   return (
     <div style={COLUMN}>
@@ -259,31 +246,38 @@ function Pharmacy() {
             selectedId={selected} onSelect={selectPharmacy} />
         </div>
         <section aria-label="약국 목록" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {/* 화면 4단계 (11/11): 카드 대신 한 판 안의 줄 목록. 영업 상태를 크게, 전화는 글자 버튼으로 */}
+          <div className="pharmacy-list">
           {answer.items.map((p, i) => (
-            <article key={p.id} id={`pharmacy-${p.id}`} className="card"
-              style={{ ...cardStyle(p), ...(p.id === selected && { borderColor: 'var(--primary)', boxShadow: '0 0 0 1px var(--primary)' }) }}>
-              <span style={{ ...NUMBER, background: p.is_open ? 'var(--text)' : 'var(--text-muted)' }}>{(page - 1) * PAGE_SIZE + i + 1}</span>
+            <article key={p.id} id={`pharmacy-${p.id}`}
+              className={`pharmacy-row${p.is_open ? '' : ' is-closed'}${p.id === selected ? ' is-selected' : ''}`}>
+              <span className="pharmacy-num">{(page - 1) * PAGE_SIZE + i + 1}</span>
               <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
                 {/* 이름을 누르면 지도에서 그 약국으로 (키보드로도 누를 수 있게 button) */}
                 <button type="button" onClick={() => selectPharmacy(p.id)} aria-pressed={p.id === selected}
-                  style={{ all: 'unset', cursor: 'pointer', fontSize: 17, fontWeight: 700, overflowWrap: 'anywhere' }}>
+                  className="pharmacy-name">
                   {p.name}
+                  {p.distance && <span className="pharmacy-distance">{formatDistance(p.distance)}</span>}
                 </button>
-                <span style={{ fontSize: 15, color: 'var(--text-muted)' }}>{infoLine(p)}</span>
+                <span className={p.is_open ? 'pharmacy-status is-open' : 'pharmacy-status'}>{statusText(p)}</span>
                 <span className="muted" style={{ overflowWrap: 'anywhere' }}>{p.addr}</span>
+              <div className="pharmacy-actions">
+                {p.tel && (
+                  <a href={`tel:${p.tel}`} aria-label={`${p.name}에 전화 ${p.tel}`} className="btn btn-secondary">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z" /></svg>
+                    전화
+                  </a>
+                )}
+                {p.lat && p.lon && (
+                  <a href={mapLink(p)} target="_blank" rel="noreferrer" aria-label={`${p.name} 지도에서 보기`} style={ICON_BTN}>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z" /><circle cx="12" cy="10" r="2.5" /></svg>
+                  </a>
+                )}
               </div>
-              {p.lat && p.lon && (
-                <a href={mapLink(p)} target="_blank" rel="noreferrer" aria-label={`${p.name} 지도에서 보기`} style={ICON_BTN}>
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z" /><circle cx="12" cy="10" r="2.5" /></svg>
-                </a>
-              )}
-              {p.tel && (
-                <a href={`tel:${p.tel}`} aria-label={`${p.name}에 전화 ${p.tel}`} style={ICON_BTN}>
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z" /></svg>
-                </a>
-              )}
+              </div>
             </article>
           ))}
+          </div>
           <p className="muted" style={{ margin: '4px 0 0', lineHeight: 1.55 }}>
             영업시간은 국립중앙의료원 공공데이터 기준이라 실제와 다를 수 있어요. 방문 전 전화로 확인하세요.
           </p>
