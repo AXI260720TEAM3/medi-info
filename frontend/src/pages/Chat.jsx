@@ -54,7 +54,7 @@ export default function Chat() {
   const bottomRef = useRef(null)
   const requestInFlight = useRef(false)
 
-  // 🔴 자동 알림 (F-028): 담은 약이 2개 이상이면 목록이 바뀔 때마다 판정해서, 함께 먹으면 안 되는 짝만 위에 띄워요
+  // 빨간 자동 알림 (F-028): 담은 약이 2개 이상이면 목록이 바뀔 때마다 판정해서, 함께 먹으면 안 되는 짝만 위에 띄워요
   // 판정은 로그인 없는 /api/interactions/check (AI 없음, 기록 없음). 결과에 어느 목록의 판정인지(key)를 같이 둬서,
   // 목록이 바뀐 뒤 늦게 온 예전 결과는 보이지 않게 해요
   const listKey = drugs.map(d => d.item_seq).sort().join(',')
@@ -262,7 +262,7 @@ export default function Chat() {
       </aside>
 
       <div className="chat-main">
-      {/* 🔴 자동 알림: 묻지 않아도, 함께 먹으면 안 되는 짝만 (🟡는 물었을 때만) */}
+      {/* 빨간 자동 알림: 묻지 않아도, 함께 먹으면 안 되는 짝만 (주의는 물었을 때만) */}
       {drugs.length >= 2 && band.key === listKey && (
         <MedCheckResult answer={band.answer} levels={['block']} emptyText={null} showCount={false} showNote={false} />
       )}

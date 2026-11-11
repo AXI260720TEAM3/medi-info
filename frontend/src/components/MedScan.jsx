@@ -109,13 +109,13 @@ function MedScan({ onAdded }) {
       {message && <p role="status">{message}</p>}
 
       {results && results.length === 0 && (
-        <AlertBox type="caution" title="🟡 사진에서 약 이름을 찾지 못했어요">
+        <AlertBox type="caution" title="사진에서 약 이름을 찾지 못했어요">
           <p>약 이름이 잘 보이게 가까이에서 다시 찍어 주세요.</p>
         </AlertBox>
       )}
 
       {results && results.length > 0 && (<>
-        <AlertBox type="caution" title="🟡 약봉지와 비교해서 맞는 약을 골라 주세요">
+        <AlertBox type="caution" title="약봉지와 비교해서 맞는 약을 골라 주세요">
           <p>AI가 사진의 글자를 잘못 읽을 수 있어요. 고른 약만 내 약에 넣어요.</p>
         </AlertBox>
         {results.map((result, i) => (
@@ -123,7 +123,7 @@ function MedScan({ onAdded }) {
             <legend>사진에서 읽은 글자: <strong>{result.read}</strong></legend>
             {result.status === 'withdrawn' && (
               <p>
-                ⚪ <strong>{baseName(result.withdrawn.item_name)}</strong>은(는) {result.withdrawn.cancel_date}에
+                <span className="tag-muted">허가 취소</span> <strong>{baseName(result.withdrawn.item_name)}</strong>은(는) {result.withdrawn.cancel_date}에
                 허가가 {result.withdrawn.cancel_name}된 약이에요. 지금은 팔지 않아서 내 약에 넣을 수 없어요.
                 아직 이 약을 갖고 있다면 복용 전에 약사와 상의하세요.
               </p>
