@@ -13,6 +13,7 @@
                                └ /    → web (nginx + React)
                               CronJob privacy-purge: 매일 03:00 질문 기록 90일 정리
                               CronJob dict-load: 멈춰 둔 설계도 (배포·운영 탭에서 Job으로 복사해 사전 적재)
+                              CronJob db-backup: 매일 12:40 DB 복사본 → 이 PC의 backups/ (최근 3개)
 ```
 
 | 파일 | 내용 |
@@ -25,6 +26,7 @@
 | `web.yaml` | `frontend/Dockerfile.prod`로 만든 nginx 화면 |
 | `ingress.yaml` | `medi.localhost`의 `/api`·`/` 나누기 |
 | `privacy-cron.yaml` | 매일 질문 기록 정리 (PR #74) |
+| `backup.yaml` | 매일 DB 백업 → `backups/` (커밋 안 함, 최근 3개). 폴더 경로는 `deploy.sh`가 채워요 |
 | `ops.yaml` | 운영 API (관리자 화면 운영 탭). 전용 계정·권한(RBAC), 백엔드만 들어오게(NetworkPolicy) |
 | `dict-job.yaml` | 배포할 때마다 사전 적재 (`data/dict/*.csv` → 위험 증상·주의 대상·고정 문구·동의어). 이게 없으면 AI 답이 500 (고정 문구가 없어서) |
 | `deploy.sh` | 이미지 만들기 → 로컬 저장소에 올리기 → Secret 만들기 → 적용 |
@@ -131,6 +133,7 @@ kubectl -n medi-info logs job/purge-now
 | 상태 보기 | 워크로드별 준비 수·**버전(커밋번호)**, 파드 상태·재시작 횟수, 최근 사전 적재 3번, CronJob 마지막 실행 |
 | 다시 시작 | `backend`·`web`만 (`kubectl rollout restart`와 같음, 하나씩 갈아 끼워서 끊기지 않아요). db·ops는 안 돼요 |
 | 사전 다시 적재 | 멈춰 둔 `dict-load` CronJob을 복사해 Job을 만들어요. CSV는 **마지막 배포 때** 넣은 것이라, 새 CSV는 머지 뒤 `deploy.sh` |
+| 백업과 저장 공간 | 백업 파일 목록, 마지막 백업 작업 결과, **지금 백업** 버튼, DB 크기 / 저장 공간(5Gi), 큰 표 5개. 36시간 넘게 새 백업이 없으면 "오래됨" |
 
 ```
 [관리자 브라우저] → backend /api/admin/ops/* (관리자 로그인 확인) → ops:8000 (OPS_TOKEN 확인) → k8s API
@@ -141,6 +144,31 @@ kubectl -n medi-info logs job/purge-now
 - `OPS_TOKEN`은 `deploy.sh`가 처음 한 번 무작위로 만들어 Secret `ops-token`에 넣어요(파일로 안 남김).
 - 관리자 API는 `ADMIN_HOSTS`(medi.localhost)로 온 요청만 받아요. **Funnel 주소로는 404**라 바깥에서는 관리자 화면이 없는 것처럼 보여요.
 - compose에는 ops가 없어서 운영 탭은 k8s에서만 돼요.
+
+## DB 백업과 되살리기
+
+`db-backup` CronJob이 매일 12:40(한국 시간)에 `backups/db_날짜_시각.dump`를 만들고 최근 3개만 남겨요.
+PC나 k3s가 꺼져 있어 놓쳐도 6시간 안에 켜면 그때 해요. 결과는 운영 탭 "백업과 저장 공간"에서 봐요.
+
+- 다 만든 뒤 `pg_restore --list`로 한 번 읽어 보고 나서야 `.dump` 이름을 붙여요. 중간에 끊긴 파일은 남지 않아요.
+- `backups/`에는 계정(비밀번호는 해시)·내 약·질문 기록이 들어 있어요. `.gitignore`에 있고, **다른 곳에 옮기거나 공유하지 마세요.**
+- 질문 기록은 90일이 지나면 지우지만(privacy-purge), 지운 기록도 최근 백업 3개(최대 3일)에는 남아 있다가 사라져요.
+
+```bash
+# 지금 바로 한 번 (운영 탭의 [지금 백업]과 같아요)
+kubectl -n medi-info create job --from=cronjob/db-backup backup-now
+
+# 되살리기 전에 먼저 시험: 임시 DB에 넣어 보고 지우기 (운영 DB는 그대로)
+kubectl -n medi-info exec -i db-0 -- sh -c 'createdb -U "$POSTGRES_USER" restore_test && pg_restore -U "$POSTGRES_USER" -d restore_test --no-owner' < backups/파일이름.dump
+kubectl -n medi-info exec db-0 -- sh -c 'dropdb -U "$POSTGRES_USER" restore_test'
+
+# 운영 DB를 백업으로 덮어쓰기 (그 뒤에 생긴 데이터는 사라져요). backend를 잠시 꺼서 쓰는 중인 연결이 없게 해요
+kubectl -n medi-info scale deploy/backend --replicas=0
+kubectl -n medi-info exec -i db-0 -- sh -c 'pg_restore --clean --if-exists --no-owner -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < backups/파일이름.dump
+kubectl -n medi-info scale deploy/backend --replicas=1
+```
+
+11/11 시험: 백업 70KB·몇 초, 임시 DB에 되살려 표 13개 행 수 일치, 4번 만들어 3개만 남는 것 확인. 덮어쓰기(마지막 명령)는 시험하지 않았어요.
 
 ## Ollama 문맥 길이 (`OLLAMA_NUM_CTX` = `OLLAMA_CONTEXT_LENGTH`)
 

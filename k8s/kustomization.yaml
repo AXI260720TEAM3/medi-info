@@ -11,4 +11,5 @@ resources:
   - ingress.yaml
   - privacy-cron.yaml
   - dict-job.yaml
+  - backup.yaml
   - ops.yaml
