@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import Badge from '../components/Badge'
+import AdminAnswerChecks from './AdminAnswerChecks'
 
 // 관리자 대시보드 (H-4): 최근 며칠의 질문 현황과 서버 상태
 const RANGES = [7, 30]
@@ -154,6 +155,7 @@ function AdminDashboard() {
         {data.types.length === 0 && <p>이 기간에는 질문이 없어요.</p>}
       </section>
     </>)}
+    <AdminAnswerChecks days={days} />
   </>)
 }
 export default AdminDashboard

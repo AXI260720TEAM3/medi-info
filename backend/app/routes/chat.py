@@ -201,7 +201,10 @@ def make_reply(
         result["category"] = category
     return result
 
-def save_chat_log(question: str, result: dict, level: str, response_ms: int | None = None):
+def save_chat_log(question: str, result: dict, level: str, response_ms: int | None = None, check: dict | None = None):
+    """check: AI 답변 검증 기록 (chat_answer._answer_from_official_info가 채움). AI를 안 부른 답은 비어 있어요
+    막힌 초안은 사용자에게 보내지 않고 여기에만 남겨요. 질문처럼 개인정보 모양은 가리고, 90일 뒤 함께 지워요(privacy.py)"""
+    check = check or {}
     blocked = level in ("block", "redirect") or result.get("risk") == "위험 상황"
 
     if blocked:
@@ -217,9 +220,11 @@ def save_chat_log(question: str, result: dict, level: str, response_ms: int | No
         db.execute(
             text("""
                 INSERT INTO chat_log
-                (question, answer, question_type, target_item_seq, blocked, block_reason, response_ms)
+                (question, answer, question_type, target_item_seq, blocked, block_reason, response_ms,
+                 check_result, check_reason, retry_reason, rejected_draft, retry_ms)
                 VALUES
-                (:question, :answer, :question_type, :item_seq, :blocked, :block_reason, :response_ms)
+                (:question, :answer, :question_type, :item_seq, :blocked, :block_reason, :response_ms,
+                 :check_result, :check_reason, :retry_reason, :rejected_draft, :retry_ms)
             """),
             {
                 "question": mask_personal(question),   # 개인정보 모양은 가려서 저장 (I-7)
@@ -229,6 +234,11 @@ def save_chat_log(question: str, result: dict, level: str, response_ms: int | No
                 "blocked": blocked,
                 "block_reason": level if blocked else None,
                 "response_ms": response_ms,   # 질문을 받은 때부터 답을 만들 때까지 (관리자 대시보드 H-4)
+                "check_result": check.get("check_result"),
+                "check_reason": check.get("check_reason"),
+                "retry_reason": check.get("retry_reason"),
+                "rejected_draft": mask_personal(check["rejected_draft"]) if check.get("rejected_draft") else None,
+                "retry_ms": check.get("retry_ms"),
             },
         )
         db.commit()
@@ -285,6 +295,9 @@ def ask(data: AskRequest, user: dict | None = Depends(get_optional_user)):
             detail="안전 검사 결과를 확인할 수 없어요."
         )
 
+    # AI 답변 검증 기록: AI를 부를 때만 채워지고, 질문 기록에만 저장해요 (응답에는 넣지 않아요. 막힌 초안이 들어 있어서)
+    answer_check: dict = {}
+
     def reply(*args, **kwargs):
         result = {**make_reply(*args, **kwargs), **extras}
         if result.get("item_seq"):
@@ -298,7 +311,7 @@ def ask(data: AskRequest, user: dict | None = Depends(get_optional_user)):
             result["answer"] += "\n\n" + safety["message"]
 
         result["answer"] = add_disclaimer(result["answer"])
-        save_chat_log(question, result, level, round((time.monotonic() - started) * 1000))
+        save_chat_log(question, result, level, round((time.monotonic() - started) * 1000), answer_check)
         return result
     
     def emergency_reply(answer: str, source: str | None = None):
@@ -711,6 +724,6 @@ def ask(data: AskRequest, user: dict | None = Depends(get_optional_user)):
             )
 
     answer = _answer_from_official_info(
-        question, analysis["resolved_question"], history_text, drug, risk, category,
+        question, analysis["resolved_question"], history_text, drug, risk, category, check=answer_check,
     )
     return reply(answer, item_seq, item_name, drug_source, risk, category)

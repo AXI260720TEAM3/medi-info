@@ -148,6 +148,16 @@ kubectl -n medi-info logs job/purge-now
 - 관리자 API는 `ADMIN_HOSTS`(medi.localhost)로 온 요청만 받아요. **Funnel 주소로는 404**라 바깥에서는 관리자 화면이 없는 것처럼 보여요.
 - compose에는 ops가 없어서 운영 탭은 k8s에서만 돼요.
 
+## DB에 나중에 더한 SQL
+
+`db/init/02_schema.sql`은 DB를 처음 만들 때 한 번만 돌아요. 그 뒤에 더한 `03_`·`04_`… 파일은 **여러 번 실행해도 안전하게**(`IF NOT EXISTS`) 쓰고,
+`deploy.sh`가 배포할 때마다 이미 있는 DB에 새 백엔드보다 먼저 넣어요. compose나 팀원 PC의 DB는 그 파일을 한 번 직접 실행하면 돼요.
+
+| 파일 | 내용 |
+|---|---|
+| `03_email_code.sql` | 이메일 인증번호 표 |
+| `04_answer_check.sql` | 질문 기록에 AI 답변 검증 결과·막힌 초안 칸 (관리자 대시보드 "AI 답변 검증") |
+
 ## DB 백업과 되살리기
 
 `db-backup` CronJob이 매일 12:40(한국 시간)에 `backups/db_날짜_시각.dump`를 만들고 최근 3개만 남겨요.

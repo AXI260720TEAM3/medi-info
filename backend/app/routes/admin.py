@@ -216,6 +216,57 @@ def dashboard(days: int = Query(7, ge=1, le=90)):
     }
 
 
+# AI 답변 검증: chat_answer.py가 AI 글을 내보내기 전에 검사한 결과 (db/init/04_answer_check.sql)
+# check_result가 NULL인 질문은 AI를 부르지 않은 답이에요 (위험 신호 차단, 함께 먹기 판정, 자료 없음 안내 등)
+@router.get("/answer-checks")
+def answer_checks(days: int = Query(7, ge=1, le=90)):
+    period = {"days": days}
+    with SessionLocal() as db:
+        summary = db.execute(text("""
+            SELECT count(check_result) AS ai,
+                   count(*) FILTER (WHERE check_result = 'pass') AS pass,
+                   count(*) FILTER (WHERE check_result = 'retry_pass') AS retry_pass,
+                   count(*) FILTER (WHERE check_result = 'fallback') AS fallback,
+                   count(*) FILTER (WHERE check_result IS NULL) AS no_ai,
+                   round(avg(retry_ms)) AS retry_ms_avg
+            FROM chat_log WHERE created_at >= now() - make_interval(days => :days)
+        """), period).mappings().one()
+        reasons = db.execute(text("""
+            SELECT check_reason AS reason, count(*) AS n,
+                   count(*) FILTER (WHERE check_result = 'retry_pass') AS saved,
+                   count(*) FILTER (WHERE check_result = 'fallback') AS replaced
+            FROM chat_log
+            WHERE created_at >= now() - make_interval(days => :days) AND check_reason IS NOT NULL
+            GROUP BY 1 ORDER BY 2 DESC, 1
+        """), period).mappings().all()
+        recent = db.execute(text("""
+            SELECT log_id, question, check_reason, check_result, created_at
+            FROM chat_log
+            WHERE created_at >= now() - make_interval(days => :days) AND check_reason IS NOT NULL
+            ORDER BY created_at DESC LIMIT 5
+        """), period).mappings().all()
+    return {
+        "days": days,
+        "summary": {k: (int(v) if v is not None else None) for k, v in summary.items()},
+        "reasons": [dict(r) for r in reasons],
+        "recent": [{**r, "created_at": r["created_at"].isoformat()} for r in recent],
+    }
+
+
+@router.get("/answer-checks/{log_id}")
+def answer_check_detail(log_id: int):
+    """질문 하나의 검증 과정: 질문 → 막힌 첫 초안과 사유 → (다시 쓴 답의 사유) → 사용자에게 간 답"""
+    with SessionLocal() as db:
+        row = db.execute(text("""
+            SELECT log_id, question, answer, question_type, target_item_seq, response_ms, created_at,
+                   check_result, check_reason, retry_reason, rejected_draft, retry_ms
+            FROM chat_log WHERE log_id = :id
+        """), {"id": log_id}).mappings().first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="질문 기록을 찾을 수 없어요. 보관 기간(90일)이 지나 지워졌을 수 있어요.")
+    return {**row, "created_at": row["created_at"].isoformat()}
+
+
 # H-5 운영: k8s 권한은 백엔드가 아니라 운영 API(ops 파드)에 있어요. 백엔드는 관리자 확인 뒤 넘겨주기만 해요
 def _ops(method, path):
     if not OPS_URL:
