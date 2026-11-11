@@ -5,6 +5,7 @@ import httpx
 from concurrent.futures import ThreadPoolExecutor
 from ..config import DATA_GO_KR_KEY
 from .drug_api import get_by_seq
+from .permit_api import get_permit_detail
 
 INGR_URL = "https://apis.data.go.kr/1471000/DrugPrdtPrmsnInfoService08/getDrugPrdtMcpnDtlInq08"
 DUR_URL = "https://apis.data.go.kr/1471000/DURPrdlstInfoService03/getUsjntTabooInfoList03"
@@ -33,6 +34,11 @@ ANTIHISTAMINE_NAMES = (
     "시프로헵타딘", "히드록시진", "메퀴타진", "케토티펜",
     "세티리진", "로라타딘", "펙소페나딘", "에바스틴", "에피나스틴", "빌라스틴", "루파타딘",
 )
+# 공식 주의사항에 계열 이름으로 적힌 경우를 찾는 말 (4번 판정)
+NSAID_WORDS = ("비스테로이드", "소염진통제")
+ANTACID_WORD = "제산제"
+TOGETHER_CUES = ("병용", "함께", "같이", "동시", "상호작용")  # 이 말이 있는 문장만 '함께 쓸 때 주의'로 본다
+ANTACID_PARTS = ("알루미늄", "마그네슘", "알마게이트", "히드로탈시트", "탄산칼슘", "탄산수소나트륨")  # 이 성분이 든 약은 제산제로 본다
 ACETAMINOPHEN = "아세트아미노펜"
 # 숫자를 코드에 정해 두지 않고, e약은요 원문에 이 문구가 있을 때만 안내한다
 ACETAMINOPHEN_MAX = re.compile(r"일일\s*최대\s*용량\s*\(4,000\s*mg\)")
@@ -54,7 +60,9 @@ def _call(url, params):
 
 @lru_cache(maxsize=1000)
 def get_ingredients(item_seq):
-    drug = get_by_seq(item_seq)
+    # 성분 API는 제품 이름이 정확히 같아야 찾아 줘서 이름부터 알아낸다.
+    # e약은요에는 일반의약품만 있어서, 없으면 허가정보에서 이름을 가져온다 (쿠파린정 같은 전문의약품, 11/11)
+    drug = get_by_seq(item_seq) or get_permit_detail(item_seq)
     if drug is None:
         return []
     items = _call(INGR_URL, {"Prduct": drug["item_name"]})
@@ -100,10 +108,41 @@ def _groups(effects, ingredients):
         groups.add(ANTIHISTAMINE_GROUP)
     return groups
 
+@lru_cache(maxsize=1000)
+def get_caution_text(item_seq):
+    """약의 공식 주의사항 글 (e약은요의 상호작용·주의사항, 없으면 허가정보 주의사항). 없으면 빈 글."""
+    drug = get_by_seq(item_seq)
+    if drug is not None:
+        return " ".join(str(drug.get(key) or "") for key in ("intrc", "atpn_warn", "atpn"))
+    drug = get_permit_detail(item_seq)
+    return str(drug.get("atpn") or "") if drug else ""
+
+def _mention_words(ingredients, groups):
+    """상대 약의 주의사항에서 찾아볼 이 약의 이름들: 성분 이름, 소염진통제·제산제 같은 계열 이름."""
+    names = {_clean_name(i["MTRAL_NM"]) for i in ingredients or []}
+    words = {name for name in names if len(name) >= 3}
+    if NSAID_GROUP in groups:
+        words |= set(NSAID_WORDS)
+    if any(part in name for name in names for part in ANTACID_PARTS):
+        words.add(ANTACID_WORD)
+    return words
+
+def _mentioned(text, words):
+    """주의사항 글에서 '함께 쓸 때'를 말하는 문장에 나온 이름들. 띄어쓰기를 지우고 찾는다.
+    같은 문장에 병용·함께 같은 말이 있어야 한다: 타이레놀의 '아스피린 천식 환자'는 함께 먹는 이야기가 아니다 (11/11)"""
+    found = set()
+    for sentence in re.split(r"[.。]|\n", text or ""):
+        compact = re.sub(r"\s", "", sentence)
+        if any(cue in compact for cue in TOGETHER_CUES):
+            found |= {word for word in words if word in compact}
+    return sorted(found)
+
 def _judge(seq_a, seq_b, a, b, show_max_dose=True):
-    """조회한 자료로 판정한다. a, b는 (금기, 성분, 효능군)이고 조회에 실패한 자료는 None이다."""
-    taboo_a, ingr_a, effects_a = a
-    taboo_b, ingr_b, effects_b = b
+    """조회한 자료로 판정한다. a, b는 (금기, 성분, 효능군, 주의사항 글)이고 조회에 실패한 자료는 None이다."""
+    taboo_a, ingr_a, effects_a, *rest_a = a
+    taboo_b, ingr_b, effects_b, *rest_b = b
+    text_a = rest_a[0] if rest_a else ""
+    text_b = rest_b[0] if rest_b else ""
     reasons = []
     basis = []  # 판정에 쓴 자료
     failed = None in (*a, *b)
@@ -131,9 +170,21 @@ def _judge(seq_a, seq_b, a, b, show_max_dose=True):
     if same_group:
         basis.append("식약처 DUR 효능군 · 서비스 소염진통제·항히스타민제 목록")
 
+    # 4) 한 약의 공식 주의사항이 다른 약(성분·계열)을 함께 쓸 때 주의하라고 적은 경우 (DUR 금기는 아님)
+    #    쿠파린정(와파린)의 "비스테로이드소염제(아스피린 포함)와 병용 시 주의", 알레그라정의 "제산제와 함께 사용 시 상의" (11/11)
+    mentioned = []
+    if not taboo:
+        mentioned = sorted(set(
+            _mentioned(text_a, _mention_words(ingr_b, _groups(effects_b, ingr_b)))
+            + _mentioned(text_b, _mention_words(ingr_a, _groups(effects_a, ingr_a)))
+        ))
+    if mentioned:
+        reasons.append(f"약의 공식 주의사항에 함께 쓸 때 주의하라는 내용이 있습니다 ({', '.join(mentioned)})")
+        basis.append("식약처 e약은요·허가정보 주의사항 문구")
+
     if taboo:
         level = "block"
-    elif same or same_group:
+    elif same or same_group or mentioned:
         level = "warn"
     elif failed or not ingr_a or not ingr_b:
         # 성분을 못 찾으면 겹치는지 알 수 없으므로 pass라고 답하지 않는다
@@ -147,11 +198,13 @@ def _judge(seq_a, seq_b, a, b, show_max_dose=True):
         reasons.append("약의 성분 정보를 찾지 못해 성분이 겹치는지 확인하지 못했습니다")
     return {"level": level, "reasons": reasons, "basis": basis}
 
+LOOKUPS = (get_taboo_partners, get_ingredients, get_effect_groups, get_caution_text)
+
 def check_together(seq_a, seq_b):
-    # 여섯 가지 조회를 한꺼번에 출발시킨다
-    with ThreadPoolExecutor(max_workers=6) as pool:
-        a = [pool.submit(lookup, seq_a) for lookup in (get_taboo_partners, get_ingredients, get_effect_groups)]
-        b = [pool.submit(lookup, seq_b) for lookup in (get_taboo_partners, get_ingredients, get_effect_groups)]
+    # 여덟 가지 조회를 한꺼번에 출발시킨다
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        a = [pool.submit(lookup, seq_a) for lookup in LOOKUPS]
+        b = [pool.submit(lookup, seq_b) for lookup in LOOKUPS]
     return _judge(seq_a, seq_b, [f.result() for f in a], [f.result() for f in b])
 
 def _lookup_or_none(lookup, item_seq):
@@ -161,7 +214,7 @@ def _lookup_or_none(lookup, item_seq):
         return None
 
 def _lookup_all(item_seq):
-    return [_lookup_or_none(lookup, item_seq) for lookup in (get_taboo_partners, get_ingredients, get_effect_groups)]
+    return [_lookup_or_none(lookup, item_seq) for lookup in LOOKUPS]
 
 def _ingredient_names(item_seq):
     items = _lookup_or_none(get_ingredients, item_seq)
