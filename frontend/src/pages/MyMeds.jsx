@@ -7,6 +7,7 @@ import MedProfile from '../components/MedProfile'
 import MedScan from '../components/MedScan'
 import MedHistory from '../components/MedHistory'
 import MedReminder from '../components/MedReminder'
+import PageTitle from '../components/PageTitle'
 
 // 성분 칸 글자: 불러오는 중, 조회 실패, 정보 없음을 구분해요
 function ingredientText(ingredients, itemSeq) {
@@ -78,7 +79,7 @@ function MyMeds() {
   if (meds === null) return <Loading />
 
   return (<>
-    <h1 className="title">내 약</h1>
+    <PageTitle icon="pill" title="내 약">약을 담으면 함께 먹어도 되는지 짝마다 자동으로 확인해요</PageTitle>
     {deleteError && <ErrorMessage message={deleteError} />}
     <MedScan onAdded={handleAdded} />
     {meds.length > 0 && <MedProfile checkKey={checkKey} onChange={() => setCheckKey(checkKey + 1)} />}

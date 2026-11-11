@@ -6,6 +6,7 @@ import AlertBox from '../components/AlertBox'
 import DrugImage from '../components/DrugImage'
 import Badge from '../components/Badge'
 import DurBadges from '../components/DurBadges'
+import PageTitle from '../components/PageTitle'
 
 const PAGE_SIZE = 10
 const PAGE_LINKS = 5   // 쪽 번호를 한 번에 몇 개 보여 줄지
@@ -72,7 +73,7 @@ function DrugSearch() {
 
   return (
     <div style={COLUMN}>
-      <h1 className="title">약 찾기</h1>
+      <PageTitle icon="search" title="약 찾기">약 이름이나 증상으로 찾아보세요</PageTitle>
 
       <form className="card" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: 16, borderRadius: 16 }} onSubmit={handleSearch}>
         <label htmlFor="drug-search" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>약 이름이나 증상</label>

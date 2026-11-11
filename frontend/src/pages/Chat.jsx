@@ -4,6 +4,7 @@ import ChatDrugChips, { MAX_DRUGS } from '../components/ChatDrugChips'
 import ChatScan from '../components/ChatScan'
 import MedCheckResult from '../components/MedCheckResult'
 import OpenPharmacies from '../components/OpenPharmacies'
+import PageTitle from '../components/PageTitle'
 import { baseName } from '../utils/image'
 
 const API_URL = import.meta.env.VITE_API_URL || '/api/ask'
@@ -239,10 +240,9 @@ export default function Chat() {
 
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <header>
-        <h1 className="title">AI 의약품 질문</h1>
-        <p className="muted">질문에 약 이름을 쓰면 아래 목록에 담겨요. 약을 여러 개 담아 두고 골라 가며 물어볼 수 있어요.</p>
-      </header>
+      <PageTitle icon="chat" title="AI 의약품 질문">
+        질문에 약 이름을 쓰면 아래 목록에 담겨요. 약을 여러 개 담아 두고 골라 가며 물어볼 수 있어요.
+      </PageTitle>
 
       {/* 🔴 자동 알림: 묻지 않아도, 함께 먹으면 안 되는 짝만 (🟡는 물었을 때만) */}
       {drugs.length >= 2 && band.key === listKey && (
