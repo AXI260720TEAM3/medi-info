@@ -71,6 +71,16 @@ OLD_ADMIN_HOSTS=$(kubectl -n $NS get configmap backend-config -o jsonpath='{.dat
 # DB 백업이 쌓일 폴더 (k8s/backup.yaml). 파드가 WSL 사용자(1000번)로 쓰니까 미리 만들어 둬요
 mkdir -p backups
 
+# 이미 있는 DB에 나중에 추가한 SQL(db/init/03 이후, 여러 번 실행해도 안전한 것만)을 새 백엔드보다 먼저 넣어요
+# (처음 만드는 DB는 db-init이 자동으로 다 실행해요. 02_schema는 처음 한 번용이라 여기서 빼요)
+if kubectl -n $NS get pod db-0 >/dev/null 2>&1; then
+  kubectl -n $NS wait --for=condition=ready pod/db-0 --timeout=120s >/dev/null
+  for f in db/init/0[3-9]_*.sql; do
+    kubectl -n $NS exec -i db-0 -- sh -c 'psql -q -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < "$f"
+    echo "DB 추가 SQL: $f"
+  done
+fi
+
 # 파일에는 :dev라고 적혀 있고, 배포할 때 이번 버전으로 바꿔요. 이름표가 바뀌면 k8s가 새 파드로 하나씩 갈아 끼워요
 # 백업 폴더도 파일에는 BACKUP_DIR이라고만 적고, 이 PC의 실제 경로로 바꿔요 (팀원마다 홈 폴더가 달라서)
 kubectl kustomize k8s | sed -e "s#\(localhost:5000/medi-[a-z]*\):dev#\1:$TAG#" -e "s#^\(  ADMIN_HOSTS:\) .*#\1 $ADMIN_HOSTS#" \

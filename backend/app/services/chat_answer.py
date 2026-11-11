@@ -13,6 +13,7 @@
 
 import logging
 import re
+import time
 
 from .chat_common import (
     SOURCE,
@@ -59,6 +60,12 @@ def _evidence(drug: dict, categories: list[str]) -> str:
     )
 
 
+def _note(check: dict | None, **values):
+    """검증 결과를 부른 쪽이 준 check에 적어요 (routes/chat.py가 질문 기록에 저장). check가 없으면 아무것도 안 해요"""
+    if check is not None:
+        check.update(values)
+
+
 def _answer_from_official_info(
     question: str,
     resolved_question: str,
@@ -66,7 +73,10 @@ def _answer_from_official_info(
     drug: dict,
     risk: str,
     category: str,
+    check: dict | None = None,
 ) -> str:
+    """check: 검증 기록을 받을 빈 dict (선택). AI를 불렀을 때만 채워져요
+    check_result(pass·retry_pass·fallback), check_reason, retry_reason, rejected_draft(막힌 첫 초안), retry_ms"""
 
     personal = risk == "개인 복용 질문"
 
@@ -278,7 +288,11 @@ def _answer_from_official_info(
         logging.warning("AI 첫 답변 검증 실패: %s", reason)
 
     if reason is None:
+        _note(check, check_result="pass")
         return answer
+
+    # 막힌 첫 초안은 사용자에게 보내지 않고 질문 기록에만 남겨요 (관리자 대시보드 "AI 답변 검증")
+    _note(check, check_reason=reason, rejected_draft=answer)
 
     # 오탐 가능성이 있는 첫 답변을 그대로 폐기하지 않고, 동일한 공식 자료에서
     # 불필요한 숫자·복용 허가를 제외하여 한 번만 재생성합니다.
@@ -291,11 +305,15 @@ def _answer_from_official_info(
 [공식 자료]의 복용방법 문장에 적힌 숫자와 단위만 그대로 옮겨 쓰세요. 자료에 없는 숫자는 쓰지 마세요.
 자료에서 찾을 수 없으면 확인할 수 없다고 말하세요. 자기 검증 과정에 관한 설명은 하지 마세요.
 """
+        retry_started = time.monotonic()
         rewritten = ollama_generate(repair_prompt)
         rewrite_reason = rejection_reason(rewritten)
+        _note(check, retry_ms=round((time.monotonic() - retry_started) * 1000))
         if rewrite_reason is None:
+            _note(check, check_result="retry_pass")
             return rewritten
         logging.warning("AI 재생성 답변 검증 실패: %s", rewrite_reason)
+        _note(check, check_result="fallback", retry_reason=rewrite_reason)
         return (
             f"{drug['item_name']}의 공식 자료에서 질문하신 용법을 정확히 옮기지 못했어요. "
             "약 상세 화면의 '이렇게 먹어요'를 확인하시거나 약사에게 물어봐 주세요."
@@ -311,13 +329,17 @@ def _answer_from_official_info(
 사용자에게 복용해도 된다는 허가나 구체적인 용량을 제시하지 마세요.
 이미 선택된 제품을 다시 묻지 마세요. 자기 검증 과정에 관한 설명도 하지 마세요.
 """
+    retry_started = time.monotonic()
     rewritten = ollama_generate(repair_prompt)
     rewrite_reason = rejection_reason(rewritten)
+    _note(check, retry_ms=round((time.monotonic() - retry_started) * 1000))
 
     if rewrite_reason is not None:
         logging.warning("AI 재생성 답변 검증 실패: %s", rewrite_reason)
+        _note(check, check_result="fallback", retry_reason=rewrite_reason)
 
     if rewrite_reason is None:
+        _note(check, check_result="retry_pass")
         return rewritten
 
     # 재생성도 부적합한 경우에는 AI 요약을 사용자에게 내보내지 않습니다.
