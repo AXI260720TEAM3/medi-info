@@ -56,7 +56,11 @@ function ChatScan({ selectedSeq, onPick }) {
     <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <label className="btn btn-secondary">
-          📷 약봉지 사진으로 약 고르기
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+            strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M3 7h3l2-3h8l2 3h3v13H3z" /><circle cx="12" cy="13" r="4" />
+          </svg>
+          약봉지 사진으로 약 고르기
           <input
             type="file"
             accept="image/jpeg,image/png"
@@ -87,7 +91,7 @@ function ChatScan({ selectedSeq, onPick }) {
             </p>
             {result.status === 'withdrawn' && (
               <p style={{ margin: 0 }}>
-                ⚪ <strong>{baseName(result.withdrawn.item_name)}</strong>은(는) 허가가 {result.withdrawn.cancel_name}된 약이에요.
+                <span className="tag-muted">허가 취소</span> <strong>{baseName(result.withdrawn.item_name)}</strong>은(는) 허가가 {result.withdrawn.cancel_name}된 약이에요.
                 복용 전에 약사와 상의하세요.
               </p>
             )}

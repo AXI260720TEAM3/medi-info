@@ -47,7 +47,7 @@ function ProfileCautions() {
           <AlertBox
             key={result.item_seq}
             type={taboo ? 'taboo' : 'caution'}
-            title={`${taboo ? '🔴' : '🟡'} ${result.item_name}: ${result.cautions[0].type}`}
+            title={`${result.cautions[0].type} · ${result.item_name}`}
           >
             {result.cautions.map(caution => (
               <p key={`${caution.ingredient}-${caution.content}`}>
@@ -61,7 +61,7 @@ function ProfileCautions() {
         )
       })}
       {failed.length > 0 && (
-        <AlertBox type="caution" title="🟡 일부 약의 주의사항을 확인하지 못했어요">
+        <AlertBox type="caution" title="일부 약의 주의사항을 확인하지 못했어요">
           <p>{failed.map(result => result.item_name).join(', ')}</p>
         </AlertBox>
       )}

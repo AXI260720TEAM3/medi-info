@@ -8,17 +8,18 @@ import TermNotes from './TermNotes'
 // 내 약(MedCheck)과 AI 질문이 같은 카드를 써서, 같은 조합이면 같은 모양으로 보여요 (E안 7번)
 //
 // 판정별 표시와 경고 종류. 색만으로 구분하지 않게 글자로도 판정을 적어요
+// 그림은 AlertBox가 종류별 선 아이콘으로 그려요 (이모지 대신, 11/11)
 const RESULTS = {
-  block: { icon: '🔴', type: 'taboo', label: '함께 먹으면 안 돼요' },
-  warn: { icon: '🟡', type: 'caution', label: '주의가 필요해요' },
-  unknown: { icon: '🟡', type: 'caution', label: '확인을 끝내지 못했어요' },
+  block: { type: 'taboo', label: '함께 먹으면 안 돼요' },
+  warn: { type: 'caution', label: '주의가 필요해요' },
+  unknown: { type: 'caution', label: '확인을 끝내지 못했어요' },
 }
 
-const NO_FINDING = '⚪ 확인된 병용금기나 성분 겹침은 없어요.'
+const NO_FINDING = '확인된 병용금기나 성분 겹침은 없어요.'
 
 function MedCheckResult({
   answer,
-  levels = ['block', 'warn', 'unknown'],   // 보여 줄 판정 (🔴 자동 알림은 ['block']만)
+  levels = ['block', 'warn', 'unknown'],   // 보여 줄 판정 (빨간 자동 알림은 ['block']만)
   emptyText = NO_FINDING,                   // 보여 줄 판정이 없을 때 문장. null이면 아무것도 안 보여요
   showCount = true,                         // "확인 필요 N건"
   showNote = true,                          // 아래 안내 문장
@@ -37,7 +38,7 @@ function MedCheckResult({
           <AlertBox
             key={`${result.item_seq_a}-${result.item_seq_b}`}
             type={shown.type}
-            title={`${shown.icon} ${result.item_name_a} + ${result.item_name_b}: ${shown.label}`}
+            title={`${shown.label} · ${result.item_name_a} + ${result.item_name_b}`}
           >
             {result.reasons.map(reason => <p key={reason}>{reason}</p>)}
             <TermNotes texts={result.reasons} />
