@@ -88,8 +88,10 @@ function MedReminderActions({ reminder, onSaved }) {
 
   return (
     <div>
+      <div className="med-actions">
       <button
         type="button"
+        className="btn btn-secondary btn-small"
         onClick={() => {
           setTime(reminder.remind_time.slice(0, 5))
           setError('')
@@ -102,6 +104,7 @@ function MedReminderActions({ reminder, onSaved }) {
 
       <button
         type="button"
+        className="btn btn-secondary btn-small"
         onClick={toggleReminder}
         disabled={saving || isStopped}
       >
@@ -110,30 +113,34 @@ function MedReminderActions({ reminder, onSaved }) {
 
       <button
         type="button"
+        className="btn btn-secondary btn-small"
         onClick={deleteReminder}
         disabled={saving}
       >
         삭제
       </button>
+      </div>
 
       {editing && (
-        <form onSubmit={saveTime}>
+        <form onSubmit={saveTime} className="med-inline-form">
           <label>
             변경할 시간
             <input
               type="time"
+              className="input"
               value={time}
               onChange={e => setTime(e.target.value)}
               required
             />
           </label>
 
-          <button type="submit" disabled={saving}>
+          <button type="submit" className="btn btn-primary btn-small" disabled={saving}>
             저장
           </button>
 
           <button
             type="button"
+            className="btn btn-secondary btn-small"
             disabled={saving}
             onClick={() => setEditing(false)}
           >
@@ -142,7 +149,7 @@ function MedReminderActions({ reminder, onSaved }) {
         </form>
       )}
 
-      {error && <p role="alert">{error}</p>}
+      {error && <p role="alert" className="form-error">{error}</p>}
     </div>
   )
 }
