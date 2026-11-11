@@ -168,6 +168,40 @@ a:hover {
   border-radius: var(--radius-card);
 }
 
+/* 내 약 화면 두 칸 (넓으면 왼쪽 결과·목록, 오른쪽 프로필·약 담기 / 좁으면 위아래) */
+.mymeds-layout {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 28px;
+  align-items: flex-start;
+}
+.mymeds-main {
+  flex: 999 1 560px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.mymeds-side {
+  flex: 1 1 300px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.section-title {   /* 화면 안의 작은 제목 (담은 약 4개) */
+  margin: 8px 0 0;
+  padding-bottom: 10px;
+  border-bottom: 2px solid var(--text);
+  font-size: 21px;
+  font-weight: 800;
+}
+.section-count {
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
 .table-card {   /* 표 카드: 좁은 화면에서는 표만 옆으로 밀려요 */
   position: relative;
   overflow-x: auto;
@@ -187,7 +221,7 @@ a:hover {
   border-bottom: 1px solid var(--border);
 }
 .med-table th {
-  font-size: 14px;
+  font-size: 15px;
   color: var(--text-muted);
 }
 .med-table tbody tr:last-child td {

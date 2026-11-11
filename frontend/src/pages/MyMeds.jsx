@@ -78,13 +78,20 @@ function MyMeds() {
   if (error) return <ErrorMessage message={error} />
   if (meds === null) return <Loading />
 
+  // 화면 4단계 (11/11): 넓은 화면은 왼쪽(약봉지 사진으로 추가 → 담은 약 → 함께 먹기 결과 → 복용 이력·알림)과
+  // 오른쪽(복용자 프로필) 두 칸. 좁은 화면은 왼쪽 칸이 먼저 오도록 아래로 쌓여요
   return (<>
     <PageTitle icon="pill" title="내 약">약을 담으면 함께 먹어도 되는지 짝마다 자동으로 확인해요</PageTitle>
     {deleteError && <ErrorMessage message={deleteError} />}
+    <div className="mymeds-layout">
+    <div className="mymeds-main">
     <MedScan onAdded={handleAdded} />
-    {meds.length > 0 && <MedProfile checkKey={checkKey} onChange={() => setCheckKey(checkKey + 1)} />}
-    {meds.length >= 2 && <MedCheck key={checkKey} />}
-    {meds.length === 0 && <p className="muted">등록한 약이 없어요.</p>}
+    <h2 className="section-title">담은 약 <span className="section-count">{meds.length}개</span></h2>
+    {meds.length === 0 && (
+      <p className="muted" style={{ margin: 0 }}>
+        아직 담은 약이 없어요. 약봉지 사진이나 <Link to="/drugs">약 찾기</Link>로 담아 보세요.
+      </p>
+    )}
     {meds.length > 0 && (
       <div className="table-card">
         <table className="med-table">
@@ -113,9 +120,15 @@ function MyMeds() {
         </table>
       </div>
     )}
+    {meds.length >= 2 && <MedCheck key={checkKey} />}
 
     <MedHistory meds={meds} />
     <MedReminder />
+    </div>
+    <aside className="mymeds-side">
+      {meds.length > 0 && <MedProfile checkKey={checkKey} onChange={() => setCheckKey(checkKey + 1)} />}
+    </aside>
+    </div>
   </>)
 }
 export default MyMeds
