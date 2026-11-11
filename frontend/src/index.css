@@ -1,17 +1,18 @@
 /* ===== 1. 색 · 모양 이름표 (약바로 디자인 시스템) =====
    색은 의미로만 써요. 빨강·주황은 경고에만, 초록은 쓰지 않아요("문제없음"으로 읽히지 않게).
-   화면에서는 색 코드를 직접 쓰지 말고 var(--이름)으로 꺼내 써요. */
+   화면에서는 색 코드를 직접 쓰지 말고 var(--이름)으로 꺼내 써요.
+   11/11: 차분한 파랑 + 미색 바탕 + 큰 글씨로 바꿈 (시안: design/yakbaro-mockup, 어르신도 읽기 쉽게) */
 :root {
   /* 기본 */
-  --primary: #2563EB;        /* 버튼, 강조 */
-  --primary-hover: #1D4ED8;
-  --primary-text: #1D4ED8;   /* 링크, 보조 버튼 글자 */
-  --primary-bg: #EFF6FF;     /* 선택된 메뉴 바탕 */
+  --primary: #3F5F8A;        /* 버튼, 강조 (차분한 파랑, 흰 글씨 대비 6.6:1) */
+  --primary-hover: #344F73;
+  --primary-text: #3F5F8A;   /* 링크, 보조 버튼 글자 */
+  --primary-bg: #E7EDF4;     /* 선택된 메뉴 바탕, 제목 띠 */
 
   /* 경고 4종 (AlertBox에서 사용) */
-  --danger: #B91C1C;         /* 위험 차단 바탕 · 금기 테두리 */
-  --danger-text: #991B1B;
-  --danger-bg: #FEF2F2;
+  --danger: #B5473A;         /* 위험 차단 바탕 · 금기 테두리 */
+  --danger-text: #8B2F24;
+  --danger-bg: #FBEEEA;
   --caution: #F59E0B;        /* 주의 테두리 */
   --caution-text: #92400E;
   --caution-bg: #FFFBEB;
@@ -22,13 +23,13 @@
   --caution-line: #FCD34D; /*주의 배지 테두리*/
 
   /* 글자 · 바탕 · 선 */
-  --text: #111827;
-  --text-muted: #4B5563;     /* 보조 글자, 정보 없음 */
-  --bg: #F6F8FB;             /* 페이지 바탕 */
+  --text: #1F2225;
+  --text-muted: #50555B;     /* 보조 글자, 정보 없음 (연한 회색은 어르신이 읽기 어려워 진하게) */
+  --bg: #F7F6F2;             /* 페이지 바탕 (미색) */
   --surface: #FFFFFF;        /* 카드 바탕 */
-  --surface-muted: #F3F4F6;  /* 회색 칩, 오류 상자 */
-  --border: #E5E7EB;
-  --border-strong: #D1D5DB;  /* 입력칸 테두리 */
+  --surface-muted: #EEECE6;  /* 회색 칩, 오류 상자 */
+  --border: #E3E0D8;
+  --border-strong: #D9D5CC;  /* 입력칸 테두리 */
 
   /* 모양 */
   --radius: 10px;            /* 버튼, 입력칸 */
@@ -46,8 +47,9 @@
 body {
   margin: 0;
   font-family: var(--font);
-  font-size: 16px;
-  line-height: 1.6;
+  font-size: 17px;
+  line-height: 1.65;
+  letter-spacing: -0.02em;
   color: var(--text);
   background: var(--bg);
 }
@@ -69,17 +71,17 @@ a:hover {
 /* ===== 3. 글자 ===== */
 .title {          /* 화면 제목 */
   margin: 0;
-  font-size: 26px;
+  font-size: 30px;
   font-weight: 800;
-  letter-spacing: -0.5px;
+  letter-spacing: -0.04em;
 }
 .card-title {     /* 카드 제목 */
   margin: 0;
-  font-size: 18px;
+  font-size: 19px;
   font-weight: 700;
 }
-.muted {          /* 출처, 갱신일 (14px보다 작게 쓰지 않음) */
-  font-size: 14px;
+.muted {          /* 출처, 갱신일 (15px보다 작게 쓰지 않음) */
+  font-size: 15px;
   color: var(--text-muted);
 }
 
@@ -94,7 +96,7 @@ a:hover {
   border-radius: var(--radius);
   border: 1px solid transparent;
   font: inherit;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 700;
   cursor: pointer;
   text-decoration: none;
