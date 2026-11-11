@@ -45,6 +45,70 @@ function when(iso) {
 }
 const sec = (ms) => (ms != null ? `${(ms / 1000).toFixed(1)}초` : '-')
 
+// 동의어 사전 (data/dict/synonym.csv). 사전은 배포 때마다 CSV에서 통째로 다시 넣어서(dict-load),
+// 여기서 DB에 바로 넣으면 다음 배포 때 사라져요. 그래서 CSV에 붙일 한 줄을 만들어 주고, PR로 넣어요
+const SYN_TYPES = {
+  오타_제품명: { label: '오타 → 제품명', hint: '예: 타이래놀 → 타이레놀. 약 이름을 잘못 쳐서 되물은 질문에' },
+  일상_공식: { label: '일상어 → 공식 증상', hint: '예: 지끈 → 두통. 증상을 못 알아들은 질문에' },
+}
+let synonymCache = null   // 사전은 자주 안 바뀌어서 화면을 새로 열 때까지 한 번만 불러요
+const loadSynonyms = () => (synonymCache ??= fetch('/api/admin/dict').then(r => r.json()).then(d => d.synonym ?? []).catch(() => { synonymCache = null; return [] }))
+const CSV_UNSAFE = /[,"\n\r]/   // CSV 칸을 깨는 글자 (쉼표·따옴표·줄바꿈)
+
+function DictCandidate({ log }) {
+  const [open, setOpen] = useState(false)
+  const [type, setType] = useState(log.question_type === '약확인' ? '오타_제품명' : '일상_공식')
+  const [word, setWord] = useState((log.question.split(/\s+/)[0] || '').slice(0, 30))
+  const [standard, setStandard] = useState('')
+  const [synonyms, setSynonyms] = useState([])
+  const [copied, setCopied] = useState(false)
+
+  useEffect(() => { if (open) loadSynonyms().then(setSynonyms) }, [open])
+
+  if (!open) {
+    return <p style={{ margin: '10px 0 0' }}><button type="button" className="btn btn-secondary" onClick={() => setOpen(true)}>사전 후보 만들기</button></p>
+  }
+  const w = word.trim(), s = standard.trim()
+  const problem = !w || !s ? '두 칸을 모두 채워 주세요.'
+    : CSV_UNSAFE.test(w + s) ? '쉼표·따옴표·줄바꿈은 쓸 수 없어요.'
+    : w === s ? '바꿀 말과 표준 말이 같아요.' : ''
+  const existing = synonyms.find(x => x.word === w)
+  const line = `${w},${s},${type}`
+  const copy = () => navigator.clipboard?.writeText(line).then(() => setCopied(true)).catch(() => setCopied(false))
+  const field = { minHeight: 44, padding: '0 10px', border: '1.5px solid var(--border-strong)', borderRadius: 'var(--radius)', font: 'inherit', fontSize: 15, boxSizing: 'border-box' }
+
+  return (
+    <div style={{ marginTop: 12, padding: 14, border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--surface)' }}>
+      <strong>사전 후보 만들기</strong>
+      <p className="muted" style={{ margin: '4px 0 10px' }}>{SYN_TYPES[type].hint}</p>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>종류
+          <select value={type} onChange={(e) => setType(e.target.value)} style={field}>
+            {Object.entries(SYN_TYPES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+          </select>
+        </label>
+        <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>바꿀 말
+          <input value={word} maxLength={30} onChange={(e) => { setWord(e.target.value); setCopied(false) }} style={{ ...field, width: 150 }} />
+        </label>
+        <span aria-hidden="true">→</span>
+        <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>{type === '오타_제품명' ? '제품명' : '공식 증상'}
+          <input value={standard} maxLength={30} onChange={(e) => { setStandard(e.target.value); setCopied(false) }} style={{ ...field, width: 150 }} />
+        </label>
+      </div>
+      {existing && <p style={{ margin: '10px 0 0' }}><Badge type="caution">이미 있음</Badge> 사전에 <strong>{existing.word} → {existing.standard}</strong>({existing.syn_type})가 있어요.</p>}
+      {problem ? <p className="muted" style={{ margin: '10px 0 0' }}>{problem}</p> : (
+        <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <code style={{ padding: '8px 10px', background: 'var(--surface-muted)', borderRadius: 8 }}>{line}</code>
+          <button type="button" className="btn btn-secondary" onClick={copy}>{copied ? '복사했어요' : '한 줄 복사'}</button>
+        </div>
+      )}
+      <p className="muted" style={{ margin: '10px 0 0' }}>
+        <code>data/dict/synonym.csv</code> 맨 아래에 붙여 PR을 올리고, 머지 뒤 배포하면 사전에 들어가요. (화면에서 DB에 바로 넣으면 다음 배포 때 CSV로 덮여 사라져요)
+      </p>
+    </div>
+  )
+}
+
 function LogRow({ log }) {
   const [open, setOpen] = useState(false)
   const [showCheck, setShowCheck] = useState(false)
@@ -87,6 +151,7 @@ function LogRow({ log }) {
               </p>
             )}
             {showCheck && <CheckDetail logId={log.log_id} />}
+            {!log.blocked && (log.question_type === '약확인' || !log.question_type) && <DictCandidate log={log} />}
           </td>
         </tr>
       )}

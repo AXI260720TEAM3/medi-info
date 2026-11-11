@@ -347,3 +347,13 @@ def ops_backups():
 def ops_backup_now(user: dict = Depends(require_admin)):
     logging.warning("관리자 %s: 지금 백업", user["login_id"])
     return _ops("POST", "/backup-now")
+
+
+@router.get("/ops/traffic")
+def ops_traffic():
+    return _ops("GET", "/traffic")
+
+
+@router.get("/ops/deployments")
+def ops_deployments():
+    return _ops("GET", "/deployments")

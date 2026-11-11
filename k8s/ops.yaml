@@ -27,7 +27,7 @@ rules:
     resources: [pods]
     verbs: [get, list]
   - apiGroups: [apps]
-    resources: [deployments, statefulsets]
+    resources: [deployments, statefulsets, replicasets]   # replicasets: 배포 이력(지난 버전들) 보기만
     verbs: [get, list]
   - apiGroups: [apps]
     resources: [deployments]

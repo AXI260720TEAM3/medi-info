@@ -132,6 +132,8 @@ kubectl -n medi-info logs job/purge-now
 |---|---|
 | 상태 보기 | 워크로드별 준비 수·**버전(커밋번호)**, 파드 상태·재시작 횟수·**지난번 종료 이유**(메모리 한도 초과 등), 최근 사전 적재 3번, CronJob 마지막 실행 |
 | 자원 사용량 | 노드(이 PC의 WSL 전체, Ollama 포함)와 파드별 CPU·메모리를 한도 대비 막대로. metrics-server 값이라 15초마다 새로 봐요 |
+| 요청 지표 | backend·web의 최근 1분 요청 수·초당·4xx·5xx(5분 합)·응답 95% 칸. ops가 Traefik `:9100/metrics`를 15초마다 읽어 5분만 메모리에 둬요(Prometheus 없이, automachine과 같은 방식). 파드끼리 부르는 요청은 안 세요 |
+| 배포 이력 | Deployment마다 배포 상태(완료·진행 중·멈춤)와 최근 5개 버전(커밋 번호). 보기만 하고, 되돌리기는 `kubectl rollout undo` |
 | 다시 시작 | `backend`·`web`만 (`kubectl rollout restart`와 같음, 하나씩 갈아 끼워서 끊기지 않아요). db·ops는 안 돼요 |
 | 사전 다시 적재 | 멈춰 둔 `dict-load` CronJob을 복사해 Job을 만들어요. CSV는 **마지막 배포 때** 넣은 것이라, 새 CSV는 머지 뒤 `deploy.sh` |
 | 백업과 저장 공간 | 백업 파일 목록, 마지막 백업 작업 결과, **지금 백업** 버튼, DB 크기 / 저장 공간(5Gi), 큰 표 5개. 36시간 넘게 새 백업이 없으면 "오래됨" |
