@@ -78,14 +78,14 @@ function MyMeds() {
   if (error) return <ErrorMessage message={error} />
   if (meds === null) return <Loading />
 
-  // 화면 4단계 (11/11): 넓은 화면은 왼쪽(함께 먹기 결과 → 담은 약 → 복용 이력·알림)과
-  // 오른쪽(누가 먹나요 · 약 담기) 두 칸. 좁은 화면은 왼쪽 칸이 먼저 오도록 아래로 쌓여요
+  // 화면 4단계 (11/11): 넓은 화면은 왼쪽(약봉지 사진으로 추가 → 담은 약 → 함께 먹기 결과 → 복용 이력·알림)과
+  // 오른쪽(복용자 프로필) 두 칸. 좁은 화면은 왼쪽 칸이 먼저 오도록 아래로 쌓여요
   return (<>
     <PageTitle icon="pill" title="내 약">약을 담으면 함께 먹어도 되는지 짝마다 자동으로 확인해요</PageTitle>
     {deleteError && <ErrorMessage message={deleteError} />}
     <div className="mymeds-layout">
     <div className="mymeds-main">
-    {meds.length >= 2 && <MedCheck key={checkKey} />}
+    <MedScan onAdded={handleAdded} />
     <h2 className="section-title">담은 약 <span className="section-count">{meds.length}개</span></h2>
     {meds.length === 0 && (
       <p className="muted" style={{ margin: 0 }}>
@@ -120,13 +120,13 @@ function MyMeds() {
         </table>
       </div>
     )}
+    {meds.length >= 2 && <MedCheck key={checkKey} />}
 
     <MedHistory meds={meds} />
     <MedReminder />
     </div>
     <aside className="mymeds-side">
       {meds.length > 0 && <MedProfile checkKey={checkKey} onChange={() => setCheckKey(checkKey + 1)} />}
-      <MedScan onAdded={handleAdded} />
     </aside>
     </div>
   </>)
