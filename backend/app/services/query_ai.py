@@ -1,6 +1,6 @@
 import json
 import httpx
-from ..config import OLLAMA_URL
+from ..config import OLLAMA_NUM_CTX, OLLAMA_URL
 
 MODEL = "qwen2.5:7b-instruct-q4_K_M"
 
@@ -39,7 +39,7 @@ def parse_query(text):
             "model": MODEL,
             "stream": False,
             "format": SCHEMA,
-            "options": {"temperature": 0},
+            "options": {"temperature": 0, "num_ctx": OLLAMA_NUM_CTX},   # AI 질문과 같은 값 (모델 다시 올리기 방지)
             "messages": [
                 {"role":"system", "content": SYSTEM},
                 {"role": "user", "content": text},

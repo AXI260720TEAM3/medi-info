@@ -51,6 +51,17 @@ EMERGENCY_WORDS = (
 
 # 생성된 답변의 기계적 1차 검사: 의료적 정확성을 보증하지 않습니다.
 
+# 개인 복용 질문으로 남겨야 하는 말: 사람·상태가 드러나는 정보 (11/11)
+PERSONAL_INFO = re.compile(
+    r"\d{1,3}\s*(?:살|세|개월|kg|킬로)|임신|임산|수유|모유|젖|아기|애기|아이|어린이|소아|초등|중학|고등|"
+    r"아들|딸|엄마|아빠|어머니|아버지|할머니|할아버지|노인|어르신|남편|아내|부모|"
+    r"제가|저는|저도|내가|나는|나도|"
+    r"먹고\s*있|먹는\s*중|복용\s*중|복용하고|처방|지병|질환|당뇨|고혈압|간\s*(?:질환|이\s*안)|신장|콩팥|"
+    r"위염|궤양|천식|알레르기|체중|몸무게|술|음주"
+)
+# 허락을 묻는 말은 개인 질문 그대로 ("이 약 먹어도 돼요?")
+PERMISSION_ASK = re.compile(r"먹어도|복용해도|먹여도|괜찮")
+
 REDIRECT_DRUG_LIMIT = 5
 REDIRECT_LIST_NOTE = "효능에 이 증상이 적힌 약의 일부예요. 순서는 추천이 아니에요."
 REDIRECT_SEARCH_NOTE = "약 찾기에서 증상이나 약 이름으로 약 정보를 찾아볼 수 있어요."
@@ -399,6 +410,18 @@ def ask(data: AskRequest, user: dict | None = Depends(get_optional_user)):
         if risk == "개인 복용 질문":
             analysis["action"] = "clarify"
             analysis["missing"] = "age"
+
+    # 개인 정보가 하나도 없는 복용방법 질문("하루에 몇 번 먹어요?")은 일반 용법 질문으로 봐요 (11/11 결정)
+    # AI가 개인 질문으로 분류하면 숫자를 쓸 수 없어서, 공식 용법이 있는데도 "판단하기 어려워요"로 끝났어요
+    # 나이·임신·가족·먹는 약·지병·"제가"가 있거나 "먹어도 돼요?"처럼 허락을 묻으면 지금처럼 개인 질문으로 둬요
+    if (
+        risk == "개인 복용 질문"
+        and category == "복용방법"
+        and not any(PERSONAL_INFO.search(u) for u in user_utterances)
+        and not PERMISSION_ASK.search(question)
+    ):
+        risk = analysis["risk"] = "일반 질문"
+        analysis["action"], analysis["missing"] = "explain", "none"
 
     # 약 검색/선택 API는 기존 계약 유지; 선택된 약이 있어야 개인별 공식 정보 설명 가능.
     if data.drug_name and not data.item_seq and not drugs:
