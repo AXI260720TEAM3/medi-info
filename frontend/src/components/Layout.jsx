@@ -31,7 +31,7 @@ function Layout() {
   return (<>
     <header className="header">
       <div className="header-inner">
-        <Link to="/drugs" className="logo">
+        <Link to="/" className="logo">
           <span className="logo-mark">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <rect x="3" y="9" width="18" height="6" rx="3" transform="rotate(-45 12 12)" />
