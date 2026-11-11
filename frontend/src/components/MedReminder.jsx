@@ -83,26 +83,31 @@ function MedReminder() {
   )
 
   return (
-    <section>
-      <h2>복약 알림</h2>
-      <p className="muted">
-        복용 중인 약의 알림 시간을 설정할 수 있어요.
-      </p>
-
-      <h3>알림 시간 등록</h3>
+    <section className="card med-panel">
+      <div>
+        <h2 className="panel-title">복약 알림</h2>
+        <p className="muted" style={{ margin: '4px 0 0' }}>
+          복용 중인 약의 알림 시간을 설정할 수 있어요.
+        </p>
+      </div>
 
       {activeHistories.length === 0 ? (
-        <p className="muted">
-          먼저 복용 중인 약을 기록해 주세요.
-        </p>
+        <>
+          <h3 className="panel-subtitle">알림 시간 등록</h3>
+          <p className="muted" style={{ margin: 0 }}>
+            먼저 복용 중인 약을 기록해 주세요.
+          </p>
+        </>
       ) : (
-        <form onSubmit={handleSave}>
-          <div>
+        <form onSubmit={handleSave} className="med-form">
+          <h3 className="panel-subtitle">알림 시간 등록</h3>
+          <div className="med-field">
             <label htmlFor="reminder-history">
               약 선택
             </label>
             <select
               id="reminder-history"
+              className="input"
               value={historyId}
               onChange={e => setHistoryId(e.target.value)}
               required
@@ -119,12 +124,13 @@ function MedReminder() {
             </select>
           </div>
 
-          <div>
+          <div className="med-field">
             <label htmlFor="reminder-time">
               알림 시간
             </label>
             <input
               id="reminder-time"
+              className="input"
               type="time"
               value={remindTime}
               onChange={e => setRemindTime(e.target.value)}
@@ -142,13 +148,13 @@ function MedReminder() {
         </form>
       )}
 
-      {message && <p role="status">{message}</p>}
+      {message && <p role="status" className="form-notice">{message}</p>}
       {error && <ErrorMessage message={error} />}
 
-      <h3>등록된 알림</h3>
+      <h3 className="panel-subtitle">등록된 알림</h3>
 
       {reminders.length === 0 ? (
-        <p className="muted">아직 등록된 알림이 없어요.</p>
+        <p className="muted" style={{ margin: 0 }}>아직 등록된 알림이 없어요.</p>
       ) : (
         <div className="table-card">
           <table className="med-table">
@@ -185,7 +191,7 @@ function MedReminder() {
         </div>
       )}
 
-      <p className="muted">
+      <p className="muted" style={{ margin: 0 }}>
         현재는 알림 시간 저장 기능이며,
         실제 알림 발송은 아직 구현 전이에요.
       </p>

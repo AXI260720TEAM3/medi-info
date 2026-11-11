@@ -31,11 +31,13 @@ function MedHistory({ meds }) {
   }
 
   return (
-    <section>
-      <h2>복용이력</h2>
-      <p className="muted">
-        복용 시작일과 중단일을 직접 기록할 수 있어요.
-      </p>
+    <section className="card med-panel">
+      <div>
+        <h2 className="panel-title">복용이력</h2>
+        <p className="muted" style={{ margin: '4px 0 0' }}>
+          복용 시작일과 중단일을 직접 기록할 수 있어요.
+        </p>
+      </div>
 
       <MedHistoryForm
   meds={meds}
@@ -48,7 +50,7 @@ function MedHistory({ meds }) {
 {error && <ErrorMessage message={error} />}
 
       {histories.length === 0 ? (
-        <p className="muted">아직 등록한 복용이력이 없어요.</p>
+        <p className="muted" style={{ margin: 0 }}>아직 등록한 복용이력이 없어요.</p>
       ) : (
         <div className="table-card">
           <table className="med-table">
