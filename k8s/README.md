@@ -202,6 +202,20 @@ ollama ps                                      # CONTEXT 16384, PROCESSOR 100% G
 - 값을 바꾸면 세 곳을 같이 바꿔요: Ollama 서버(`OLLAMA_CONTEXT_LENGTH`), `k8s/config.yaml`, 기본값(`backend/app/config.py`).
 - GPU가 작은 팀원 PC(compose)는 `.env`에 `OLLAMA_NUM_CTX=8192`, 그 PC의 Ollama에도 `OLLAMA_CONTEXT_LENGTH=8192`.
 
+### Ollama 프롬프트 캐시 한도 (`LLAMA_ARG_CACHE_RAM=512`)
+
+Ollama 안의 llama-server는 지난 질문의 계산 결과를 **WSL 메모리**에 쌓아 두는 프롬프트 캐시가 있어요. 기본 한도가 **8GB**라,
+약바로처럼 공식 자료가 들어간 긴 프롬프트가 계속 바뀌면 끝까지 차요(`OLLAMA_KEEP_ALIVE=-1`이라 모델이 안 내려가서 계속 쌓임).
+
+- 11/11: 모델은 100% GPU인데 러너가 WSL 메모리 4.7GB + 스왑 3.6GB를 잡아서, WSL 남은 메모리가 0.5GB → k3s API 멈춤·파드 재시작·배포 중단.
+- 한도를 512MB로: 질문 40번 뒤에도 러너 약 0.7GB, 답 시간 평균 6초로 그대로.
+- Ollama 설정(`OLLAMA_*`)에는 이 항목이 없어서, llama-server가 직접 읽는 환경 변수로 줘요. automachine도 같은 Ollama라 같이 좋아져요.
+
+```bash
+sudo bash -c 'f=/etc/systemd/system/ollama.service.d/override.conf; sed -i "/LLAMA_ARG_CACHE_RAM/d" $f; echo "Environment=\"LLAMA_ARG_CACHE_RAM=512\"" >> $f; systemctl daemon-reload; systemctl restart ollama'
+journalctl -u ollama --since -10min | grep "prompt cache"   # size limit: 512 MiB 인지
+```
+
 ## 상태 검사 (probe)
 
 | 검사 | 주소 | 실패하면 |
