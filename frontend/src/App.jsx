@@ -13,13 +13,14 @@ import Chat from './pages/Chat'
 import Pharmacy from './pages/Pharmacy'
 import Privacy from './pages/Privacy'
 import Admin from './pages/Admin'
+import Home from './pages/Home'
 
 function App(){
   return (
     <Routes>
       {/* Layout 안의 화면들은 상단 메뉴 · 아래 안내가 자동으로 붙어요 */}
       <Route element={<Layout />}>
-        <Route path="/" element={<Navigate to="/drugs" replace />} />
+        <Route path="/" element={<Home />} />
         <Route path="/drugs" element={<DrugSearch />} />
         <Route path="/drugs/:itemSeq" element={<DrugDetail />} />
         <Route path="/style-guide" element={<StyleGuide />} />
