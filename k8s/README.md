@@ -130,7 +130,8 @@ kubectl -n medi-info logs job/purge-now
 
 | 할 일 | 하는 일 |
 |---|---|
-| 상태 보기 | 워크로드별 준비 수·**버전(커밋번호)**, 파드 상태·재시작 횟수, 최근 사전 적재 3번, CronJob 마지막 실행 |
+| 상태 보기 | 워크로드별 준비 수·**버전(커밋번호)**, 파드 상태·재시작 횟수·**지난번 종료 이유**(메모리 한도 초과 등), 최근 사전 적재 3번, CronJob 마지막 실행 |
+| 자원 사용량 | 노드(이 PC의 WSL 전체, Ollama 포함)와 파드별 CPU·메모리를 한도 대비 막대로. metrics-server 값이라 15초마다 새로 봐요 |
 | 다시 시작 | `backend`·`web`만 (`kubectl rollout restart`와 같음, 하나씩 갈아 끼워서 끊기지 않아요). db·ops는 안 돼요 |
 | 사전 다시 적재 | 멈춰 둔 `dict-load` CronJob을 복사해 Job을 만들어요. CSV는 **마지막 배포 때** 넣은 것이라, 새 CSV는 머지 뒤 `deploy.sh` |
 | 백업과 저장 공간 | 백업 파일 목록, 마지막 백업 작업 결과, **지금 백업** 버튼, DB 크기 / 저장 공간(5Gi), 큰 표 5개. 36시간 넘게 새 백업이 없으면 "오래됨" |
@@ -140,6 +141,8 @@ kubectl -n medi-info logs job/purge-now
 ```
 
 - **k8s 권한은 ops 파드만** 가져요. 손님을 받는 backend는 권한이 없어서, backend가 뚫려도 k8s를 직접 만질 수 없어요. ops 권한에도 Secret 읽기·exec·지우기는 없어요.
+- 노드는 이름공간 밖이라 `ClusterRole medi-info-ops-nodes`로 **노드 정보·사용량 읽기만** 따로 줘요.
+- 대시보드 "서버 상태"는 `/api/admin/health`로 통계와 따로 확인해요: DB 응답, Ollama 응답·모델이 GPU에 올라갔는지·문맥 길이가 `OLLAMA_NUM_CTX`와 같은지, 사전(고정 문구·위험 증상이 비었는지). 관리자 확인에도 DB를 써서, DB가 멈추면 "확인 실패"로 보여요.
 - ops에는 **backend 파드만** 들어올 수 있어요(NetworkPolicy). 같은 클러스터의 automachine 등은 막혀요.
 - `OPS_TOKEN`은 `deploy.sh`가 처음 한 번 무작위로 만들어 Secret `ops-token`에 넣어요(파일로 안 남김).
 - 관리자 API는 `ADMIN_HOSTS`(medi.localhost)로 온 요청만 받아요. **Funnel 주소로는 404**라 바깥에서는 관리자 화면이 없는 것처럼 보여요.

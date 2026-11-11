@@ -1,7 +1,7 @@
 """medi-info 운영 API (기능명세 H-5). 관리자 화면의 운영 탭이 백엔드를 거쳐 불러요
 - 바깥에서 바로 오는 길(Ingress)이 없어요. 같은 클러스터의 백엔드 파드만 들어올 수 있어요 (NetworkPolicy)
 - 백엔드는 관리자 확인을 한 뒤 X-Ops-Token을 붙여서 불러요. 토큰이 없거나 틀리면 401
-- 할 수 있는 일: 상태 보기, backend·web 다시 시작, 사전 다시 적재(dict-load Job), 백업 보기·지금 백업(db-backup Job)"""
+- 할 수 있는 일: 상태 보기, 자원 사용량 보기, backend·web 다시 시작, 사전 다시 적재(dict-load Job), 백업 보기·지금 백업(db-backup Job)"""
 import os
 import secrets
 from datetime import datetime, timezone
@@ -52,14 +52,75 @@ def _pods():
     pods = []
     for p in k8s.get(k8s.ns("pods"))["items"]:
         statuses = p["status"].get("containerStatuses") or []
+        # 지난번에 꺼진 이유 (OOMKilled = 메모리 한도를 넘어 k8s가 끔, Error = 프로그램이 오류로 끝남)
+        last = next((s["lastState"]["terminated"] for s in statuses if s.get("lastState", {}).get("terminated")), None)
         pods.append({
             "name": p["metadata"]["name"],
             "phase": p["status"].get("phase"),
             "ready": bool(statuses) and all(s["ready"] for s in statuses),
             "restarts": sum(s["restartCount"] for s in statuses),
             "started": p["status"].get("startTime"),
+            "last_stop": last and {"reason": last.get("reason"), "exit_code": last.get("exitCode"), "at": last.get("finishedAt")},
         })
     return sorted(pods, key=lambda p: p["name"])
+
+
+# k8s의 자원 표기 → 숫자. CPU는 밀리코어(1코어 = 1000m), 메모리는 MiB
+def _cpu_m(q):
+    if not q:
+        return None
+    units = {"n": 1e-6, "u": 1e-3, "m": 1}
+    return float(q[:-1]) * units[q[-1]] if q[-1] in units else float(q) * 1000
+
+
+def _mem_mib(q):
+    if not q:
+        return None
+    for unit, mib in (("Ki", 1 / 1024), ("Mi", 1), ("Gi", 1024), ("k", 1000 / 2**20), ("M", 1e6 / 2**20), ("G", 1e9 / 2**20)):
+        if q.endswith(unit):
+            return float(q[: -len(unit)]) * mib
+    return float(q) / 2**20
+
+
+@app.get("/resources", dependencies=[Depends(check_token)])
+def resources():
+    """노드(이 PC의 WSL)와 파드별 CPU·메모리 사용량. metrics-server가 15초쯤마다 잰 값이라 '지금 이 순간'은 아니에요
+    노드 값에는 k8s 밖의 Ollama·automachine도 들어 있어요 (같은 WSL을 나눠 써요)"""
+    try:
+        node_list = k8s.get("/api/v1/nodes")["items"]
+        pods = k8s.get(k8s.ns("pods"))["items"]
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"k8s API에 묻지 못했어요: {type(exc).__name__}")
+    try:
+        node_use = {n["metadata"]["name"]: n["usage"] for n in k8s.get("/apis/metrics.k8s.io/v1beta1/nodes")["items"]}
+        pod_use = {p["metadata"]["name"]: p["containers"] for p in k8s.get(k8s.ns("pods", "/apis/metrics.k8s.io/v1beta1"))["items"]}
+        metrics = True
+    except httpx.HTTPError:
+        node_use, pod_use, metrics = {}, {}, False   # metrics-server가 꺼져 있어도 나머지는 보여 줘요
+
+    nodes = [{
+        "name": n["metadata"]["name"],
+        "cpu_m": _cpu_m(node_use.get(n["metadata"]["name"], {}).get("cpu")),
+        "cpu_total_m": _cpu_m(n["status"]["allocatable"]["cpu"]),
+        "mem_mib": _mem_mib(node_use.get(n["metadata"]["name"], {}).get("memory")),
+        "mem_total_mib": _mem_mib(n["status"]["allocatable"]["memory"]),
+    } for n in node_list]
+
+    rows = []
+    for p in pods:
+        if p["status"].get("phase") != "Running":
+            continue   # 끝난 Job 파드(백업·사전 적재)는 자원을 안 써요
+        name = p["metadata"]["name"]
+        used = pod_use.get(name, [])
+        limits = [c.get("resources", {}).get("limits", {}) for c in p["spec"]["containers"]]
+        rows.append({
+            "name": name,
+            "cpu_m": sum(_cpu_m(c["usage"]["cpu"]) for c in used) if used else None,
+            "cpu_limit_m": sum(_cpu_m(l.get("cpu")) or 0 for l in limits) or None,
+            "mem_mib": sum(_mem_mib(c["usage"]["memory"]) for c in used) if used else None,
+            "mem_limit_mib": sum(_mem_mib(l.get("memory")) or 0 for l in limits) or None,
+        })
+    return {"metrics": metrics, "nodes": nodes, "pods": sorted(rows, key=lambda r: r["name"])}
 
 
 def _dict_jobs():

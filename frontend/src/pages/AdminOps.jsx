@@ -34,6 +34,87 @@ const toMib = (q) => {
 }
 const STALE_HOURS = 36   // 매일 백업이니, 하루 반이 넘게 새 파일이 없으면 놓친 거예요
 
+// 지난번에 꺼진 이유를 한국어로 (k8s가 적는 reason)
+const STOP_REASONS = { OOMKilled: '메모리 한도 초과로 강제 종료', Error: '오류로 종료', Completed: '정상 종료' }
+
+// 사용량 막대: 80%를 넘으면 주의색. 한도가 없으면 숫자만
+function UsageBar({ used, total, unit, label }) {
+  if (used == null) return <span className="muted">-</span>
+  const text = unit === 'm' ? `${Math.round(used)}m` : `${Math.round(used)}Mi`
+  if (!total) return <span>{text}</span>
+  const pct = Math.min(100, (used / total) * 100)
+  const totalText = unit === 'm' ? `${(total / 1000).toFixed(total % 1000 ? 1 : 0)}코어` : total >= 1024 ? `${(total / 1024).toFixed(1)}Gi` : `${Math.round(total)}Mi`
+  return (
+    <div style={{ minWidth: 140 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: '0.9rem' }}>
+        <span>{text} / {totalText}</span><span className="muted">{pct.toFixed(0)}%</span>
+      </div>
+      <div role="img" aria-label={`${label} ${pct.toFixed(0)}% 사용`}
+        style={{ height: 8, borderRadius: 999, background: 'var(--surface-muted)', overflow: 'hidden', marginTop: 4 }}>
+        <div style={{ width: `${Math.max(pct, 1)}%`, height: '100%', background: pct > 80 ? 'var(--caution)' : 'var(--primary)' }} />
+      </div>
+    </div>
+  )
+}
+
+// 자원 사용량: metrics-server가 15초쯤마다 재는 값이라 15초마다 다시 불러요 (탭을 떠나면 멈춰요)
+function ResourcePanel() {
+  const [data, setData] = useState(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    const load = () => call('GET', '/api/admin/ops/resources')
+      .then((d) => { setData(d); setError('') })
+      .catch((err) => setError(err.message))
+    load()
+    const timer = setInterval(load, 15000)
+    return () => clearInterval(timer)
+  }, [])
+
+  return (
+    <section className="card">
+      <h2>자원 사용량</h2>
+      {error && <p style={{ color: 'var(--danger-text)' }}>{error}</p>}
+      {!data && !error && <p>불러오는 중...</p>}
+      {data && (<>
+        {!data.metrics && <p><Badge type="caution">사용량 없음</Badge> metrics-server에서 값을 못 받았어요. k3s를 켠 직후라면 1분쯤 뒤에 다시 보세요.</p>}
+        <h3>이 PC (노드)</h3>
+        <p className="muted">WSL 전체 값이에요. k8s 밖의 Ollama와 automachine도 같은 WSL을 나눠 써요.</p>
+        <div className="table-card">
+          <table className="med-table">
+            <thead><tr><th>노드</th><th>CPU</th><th>메모리</th></tr></thead>
+            <tbody>
+              {data.nodes.map(n => (
+                <tr key={n.name}>
+                  <td>{n.name}</td>
+                  <td><UsageBar used={n.cpu_m} total={n.cpu_total_m} unit="m" label="노드 CPU" /></td>
+                  <td><UsageBar used={n.mem_mib} total={n.mem_total_mib} unit="Mi" label="노드 메모리" /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <h3>파드 (한도 대비)</h3>
+        <p className="muted">한도(limit)를 넘으면 CPU는 느려지고, 메모리는 k8s가 파드를 끄고 다시 켜요.</p>
+        <div className="table-card">
+          <table className="med-table">
+            <thead><tr><th>파드</th><th>CPU</th><th>메모리</th></tr></thead>
+            <tbody>
+              {data.pods.map(p => (
+                <tr key={p.name}>
+                  <td>{p.name}</td>
+                  <td><UsageBar used={p.cpu_m} total={p.cpu_limit_m} unit="m" label={`${p.name} CPU`} /></td>
+                  <td><UsageBar used={p.mem_mib} total={p.mem_limit_mib} unit="Mi" label={`${p.name} 메모리`} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </>)}
+    </section>
+  )
+}
+
 // 백업과 저장 공간: 매일 12:40 db-backup이 backups/에 .dump를 만들고 최근 3개만 남겨요 (k8s/backup.yaml)
 function BackupPanel() {
   const [data, setData] = useState(null)
@@ -190,11 +271,13 @@ function AdminOps() {
       </div>
     </section>
 
+    <ResourcePanel />
+
     <section className="card">
       <h2>파드</h2>
       <div className="table-card">
         <table className="med-table">
-          <thead><tr><th>이름</th><th>상태</th><th>재시작</th><th>시작</th></tr></thead>
+          <thead><tr><th>이름</th><th>상태</th><th>재시작</th><th>지난번 종료</th><th>시작</th></tr></thead>
           <tbody>
             {status.pods.map(p => (
               <tr key={p.name}>
@@ -202,6 +285,12 @@ function AdminOps() {
                 <td>{p.phase === 'Succeeded' ? <Badge type="none">끝남</Badge>
                   : p.ready ? <Badge type="notice">정상</Badge> : <Badge type="caution">{p.phase}</Badge>}</td>
                 <td>{p.restarts}</td>
+                <td>{p.last_stop
+                  ? <>{p.last_stop.reason === 'OOMKilled'
+                      ? <Badge type="caution">{STOP_REASONS.OOMKilled}</Badge>
+                      : (STOP_REASONS[p.last_stop.reason] ?? p.last_stop.reason)}
+                    <div className="muted">종료 코드 {p.last_stop.exit_code} · {fmt(p.last_stop.at)}</div></>
+                  : '-'}</td>
                 <td>{fmt(p.started)}</td>
               </tr>
             ))}
