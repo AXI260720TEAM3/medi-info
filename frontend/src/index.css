@@ -489,6 +489,66 @@ a.source-chip:hover{
 .pharmacy-map {
   height: 300px;
 }
+/* 약국 목록 (화면 4단계): 한 판 안의 줄 목록 */
+.pharmacy-list {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+.pharmacy-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 18px;
+  border-bottom: 1px solid var(--border);
+}
+.pharmacy-row:last-child { border-bottom: none; }
+.pharmacy-row.is-closed { background: var(--surface-muted); }
+.pharmacy-row.is-selected { box-shadow: inset 4px 0 0 var(--primary); background: var(--primary-bg); }
+.pharmacy-num {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: #FFFFFF;
+  font-size: 15px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pharmacy-row.is-closed .pharmacy-num { background: var(--text-muted); }
+.pharmacy-name {
+  all: unset;
+  cursor: pointer;
+  font-size: 19px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.pharmacy-name:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.pharmacy-distance {
+  margin-left: 8px;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+.pharmacy-status {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+.pharmacy-status.is-open { color: var(--primary-text); }
+.pharmacy-actions {         /* 주소 아래: 전화 · 지도 버튼 */
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+@media (max-width: 480px) {
+  .pharmacy-row { padding: 14px; }
+}
 @media (min-width: 900px) {   /* PC: 목록 왼쪽, 지도 오른쪽 (시안 WEB-PHARMACY) */
   .pharmacy-layout {
     grid-template-columns: minmax(340px, 2fr) 3fr;
