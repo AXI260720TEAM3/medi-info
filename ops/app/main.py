@@ -1,16 +1,17 @@
 """medi-info 운영 API (기능명세 H-5). 관리자 화면의 운영 탭이 백엔드를 거쳐 불러요
 - 바깥에서 바로 오는 길(Ingress)이 없어요. 같은 클러스터의 백엔드 파드만 들어올 수 있어요 (NetworkPolicy)
 - 백엔드는 관리자 확인을 한 뒤 X-Ops-Token을 붙여서 불러요. 토큰이 없거나 틀리면 401
-- 할 수 있는 일: 상태 보기, 자원 사용량 보기, backend·web 다시 시작, 사전 다시 적재(dict-load Job), 백업 보기·지금 백업(db-backup Job)"""
+- 할 수 있는 일: 상태 보기, 자원 사용량·요청 지표·배포 이력 보기, backend·web 다시 시작, 사전 다시 적재(dict-load Job), 백업 보기·지금 백업(db-backup Job)"""
 import os
 import secrets
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException
 
-from . import k8s
+from . import k8s, traffic
 
 OPS_TOKEN = os.environ["OPS_TOKEN"]   # 없으면 켜지지 않아요 (토큰 없이 열린 운영 API는 위험해서)
 RESTARTABLE = ("backend", "web")      # Role도 이 두 이름만 patch를 허락해요
@@ -24,7 +25,68 @@ def check_token(x_ops_token: str = Header(default="")):
         raise HTTPException(status_code=401, detail="운영 토큰이 맞지 않아요.")
 
 
-app = FastAPI(title="medi-info 운영 API")
+@asynccontextmanager
+async def lifespan(_app):
+    traffic.start()   # Traefik 지표를 15초마다 읽는 일을 뒤에서 시작해요
+    yield
+
+
+app = FastAPI(title="medi-info 운영 API", lifespan=lifespan)
+
+
+@app.get("/traffic", dependencies=[Depends(check_token)])
+def traffic_status():
+    return traffic.status()
+
+
+REVISION = "deployment.kubernetes.io/revision"
+CHANGE_CAUSE = "kubernetes.io/change-cause"   # deploy.sh가 배포마다 커밋 번호를 적어요
+
+
+def _rollout_state(d):
+    """kubectl rollout status와 같은 순서로 판단해요"""
+    spec, status = d["spec"], d.get("status", {})
+    want, updated = spec.get("replicas", 1), status.get("updatedReplicas", 0)
+    if d["metadata"].get("generation", 0) > status.get("observedGeneration", 0):
+        return "대기"
+    progressing = next((c for c in status.get("conditions", []) if c.get("type") == "Progressing"), {})
+    if progressing.get("reason") == "ProgressDeadlineExceeded":
+        return "멈춤"   # 10분 안에 새 파드가 준비되지 않음 (보통 이미지·설정 오류)
+    if updated < want or status.get("replicas", 0) > updated or status.get("availableReplicas", 0) < updated:
+        return "진행 중"
+    return "완료"
+
+
+@app.get("/deployments", dependencies=[Depends(check_token)])
+def deployments():
+    """Deployment마다 지금 버전·배포 상태·지난 버전들 (ReplicaSet = 버전 하나). 읽기만 해요"""
+    try:
+        items = k8s.get(k8s.ns("deployments", "/apis/apps/v1"))["items"]
+        replica_sets = k8s.get(k8s.ns("replicasets", "/apis/apps/v1"))["items"]
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"k8s API에 묻지 못했어요: {type(exc).__name__}")
+    views = []
+    for d in sorted(items, key=lambda d: d["metadata"]["name"]):
+        meta = d["metadata"]
+        current = meta.get("annotations", {}).get(REVISION)
+        mine = [rs for rs in replica_sets if any(o.get("uid") == meta["uid"] for o in rs["metadata"].get("ownerReferences", []))]
+        mine.sort(key=lambda rs: int(rs["metadata"].get("annotations", {}).get(REVISION, 0)), reverse=True)
+        progressing = next((c for c in d.get("status", {}).get("conditions", []) if c.get("type") == "Progressing"), {})
+        views.append({
+            "name": meta["name"],
+            "version": _tag(d["spec"]["template"]["spec"]["containers"][0]["image"]),
+            "state": _rollout_state(d),
+            "message": progressing.get("message"),
+            "last_change": progressing.get("lastUpdateTime"),
+            "history": [{
+                "revision": int(rs["metadata"].get("annotations", {}).get(REVISION, 0)),
+                "version": _tag(rs["spec"]["template"]["spec"]["containers"][0]["image"]),
+                "cause": rs["metadata"].get("annotations", {}).get(CHANGE_CAUSE),
+                "created": rs["metadata"].get("creationTimestamp"),
+                "current": rs["metadata"].get("annotations", {}).get(REVISION) == current,
+            } for rs in mine[:5]],
+        })
+    return {"deployments": views}
 
 
 @app.get("/live")
