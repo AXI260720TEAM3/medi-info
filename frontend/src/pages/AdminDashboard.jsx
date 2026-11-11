@@ -31,6 +31,70 @@ function DailyBars({ daily }) {
   )
 }
 
+// 서버 상태: 통계와 따로 불러요 (/api/admin/health). 하나가 실패해도 나머지는 보여요
+// 색은 배지 규칙대로: 정상은 파랑(notice), 느리거나 설정이 어긋남은 주의(caution), 기능이 실패하면 금기색(taboo)
+const STATE = { ok: ['notice', '정상'], warn: ['caution', '확인 필요'], down: ['taboo', '응답 없음'] }
+
+function HealthRow({ label, item, children }) {
+  const [type, word] = STATE[item.state] ?? STATE.down
+  return (
+    <tr>
+      <td>{label}</td>
+      <td><Badge type={type}>{item.state === 'down' && label === '사전' ? '비어 있음' : word}{item.ms != null ? ` · ${item.ms}ms` : ''}</Badge></td>
+      <td>{children}{item.detail && <div className="muted">{item.detail}</div>}</td>
+    </tr>
+  )
+}
+
+function HealthCard() {
+  const [health, setHealth] = useState(null)
+  const [error, setError] = useState('')
+  const [checked, setChecked] = useState(null)
+
+  const load = () => {
+    fetch('/api/admin/health')
+      .then(async (res) => {
+        if (!res.ok) throw new Error(res.status >= 500
+          ? '서버 상태를 확인하지 못했어요. 관리자 확인에도 DB를 쓰기 때문에, DB가 멈췄을 가능성이 커요.'
+          : '서버 상태를 불러오지 못했어요.')
+        return res.json()
+      })
+      .then((d) => { setHealth(d); setError(''); setChecked(new Date()) })
+      .catch((err) => setError(err.message))
+  }
+  useEffect(load, [])
+
+  return (
+    <section className="card">
+      <h2>서버 상태</h2>
+      {error && <p><Badge type="taboo">확인 실패</Badge> {error}</p>}
+      {!health && !error && <p>확인하는 중...</p>}
+      {health && (
+        <div className="table-card">
+          <table className="med-table">
+            <thead><tr><th>대상</th><th>상태</th><th>내용</th></tr></thead>
+            <tbody>
+              <HealthRow label="DB" item={health.db}>PostgreSQL (k8s db-0)</HealthRow>
+              <HealthRow label="AI 모델 서버" item={health.ollama}>
+                {health.ollama.model && (health.ollama.loaded
+                  ? `${health.ollama.model} · 올라가 있음 (${health.ollama.size_gb}GB, GPU ${health.ollama.gpu_pct}%, 문맥 ${health.ollama.ctx})`
+                  : `${health.ollama.model} · 쉬는 중 (다음 질문이 모델을 올리느라 10초쯤 더 걸려요)`)}
+              </HealthRow>
+              <HealthRow label="사전" item={health.dict}>
+                {health.dict.counts && Object.entries(health.dict.counts).map(([k, v]) => `${DICT_LABELS[k] ?? k} ${v}`).join(' · ')}
+              </HealthRow>
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="muted">
+        {checked && `${checked.toLocaleTimeString('ko-KR')}에 확인 · `}
+        <button type="button" className="btn btn-secondary" onClick={load}>다시 확인</button>
+      </p>
+    </section>
+  )
+}
+
 function AdminDashboard() {
   const [days, setDays] = useState(7)
   const [data, setData] = useState(null)
@@ -53,26 +117,15 @@ function AdminDashboard() {
       .catch((err) => setError(err.message))
   }, [days])
 
-  if (error) return <p style={{ color: 'var(--danger-text)' }}>{error}</p>
-
   return (<>
+    <HealthCard />
     <div className="admin-tabs">
       {RANGES.map(r => (
         <button key={r} type="button" className={days === r ? 'btn btn-primary' : 'btn btn-secondary'}
           onClick={() => changeDays(r)}>최근 {r}일</button>
       ))}
     </div>
-    {!data ? <p>불러오는 중...</p> : (<>
-      <section className="card">
-        <h2>서버 상태</h2>
-        <p>
-          DB <Badge type="notice">정상</Badge>{' '}
-          AI 모델 서버 {data.status.ollama.ok
-            ? <Badge type="notice">정상 · {data.status.ollama.ms}ms</Badge>
-            : <Badge type="taboo">응답 없음</Badge>}
-        </p>
-        {!data.status.ollama.ok && <p className="muted">AI 질문이 503으로 실패해요. WSL에서 Ollama가 켜져 있는지 확인해 주세요.</p>}
-      </section>
+    {error ? <p style={{ color: 'var(--danger-text)' }}>{error}</p> : !data ? <p>불러오는 중...</p> : (<>
 
       <section className="card">
         <h2>질문 현황 (최근 {data.days}일)</h2>
@@ -99,9 +152,6 @@ function AdminDashboard() {
           </table>
         </div>
         {data.types.length === 0 && <p>이 기간에는 질문이 없어요.</p>}
-        <p className="muted">
-          사전 줄 수: {Object.entries(data.dict_counts).map(([k, v]) => `${DICT_LABELS[k] ?? k} ${v}`).join(' · ')}
-        </p>
       </section>
     </>)}
   </>)

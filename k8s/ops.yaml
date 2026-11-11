@@ -23,6 +23,9 @@ rules:
     resources: [persistentvolumeclaims]
     resourceNames: [pgdata-db-0]      # DB 저장 공간 크기 보기만
     verbs: [get]
+  - apiGroups: [metrics.k8s.io]       # 파드별 CPU·메모리 사용량 (metrics-server, k3s 기본)
+    resources: [pods]
+    verbs: [get, list]
   - apiGroups: [apps]
     resources: [deployments, statefulsets]
     verbs: [get, list]
@@ -50,6 +53,33 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
   name: ops
+---
+# 노드(이 PC)는 이름공간 밖에 있어서 Role로는 못 봐요. 노드 정보와 사용량 읽기만 따로 줘요 (바꾸기·지우기 없음)
+# 이름 앞에 medi-info-를 붙여요. ClusterRole은 클러스터에 하나뿐이라 automachine의 것과 겹치면 안 돼요
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: medi-info-ops-nodes
+rules:
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [get, list]
+  - apiGroups: [metrics.k8s.io]
+    resources: [nodes]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: medi-info-ops-nodes
+subjects:
+  - kind: ServiceAccount
+    name: ops
+    namespace: medi-info
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: medi-info-ops-nodes
 ---
 apiVersion: v1
 kind: Service

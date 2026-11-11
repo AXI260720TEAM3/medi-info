@@ -10,9 +10,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
-from ..config import OLLAMA_URL, OPS_TOKEN, OPS_URL
+from ..config import OLLAMA_NUM_CTX, OLLAMA_URL, OPS_TOKEN, OPS_URL
 from ..database import SessionLocal
 from ..deps import admin_host_only, require_admin
+from ..services.chat_common import MODEL
 from ..services.safety import check_safety
 from ..services.synonym import find_symptom
 
@@ -92,15 +93,72 @@ def dict_test(data: DictTest):
 
 
 
-# H-4 대시보드: 질문 기록(chat_log)으로 본 이용 현황 + 서버 상태
-def _ollama_status():
-    """AI 모델 서버(Ollama, k8s 밖 WSL)가 살아 있는지. 모델 목록만 물어봐요 (답 만들기는 안 해요)"""
+# 서버 상태: 대시보드 통계와 따로 불러요. DB가 죽어도 이 주소는 "DB 응답 없음"을 돌려줘요
+# (예전에는 통계 쿼리가 성공해야 화면이 떠서, DB가 죽으면 상태 대신 오류만 보였어요)
+# 판정: ok(정상) · warn(돌긴 하지만 느리거나 설정이 어긋남) · down(그 기능이 실패해요)
+def _ms(started):
+    return round((time.monotonic() - started) * 1000)
+
+
+def _db_health():
     started = time.monotonic()
     try:
-        httpx.get(f"{OLLAMA_URL}/api/tags", timeout=3).raise_for_status()
-        return {"ok": True, "ms": round((time.monotonic() - started) * 1000)}
-    except httpx.HTTPError:
-        return {"ok": False, "ms": None}
+        with SessionLocal() as db:
+            db.execute(text("SELECT 1"))
+            counts = {name: db.execute(text(f"SELECT count(*) FROM {name}")).scalar_one() for name in DICTS}
+    except Exception as exc:   # 연결 실패·시간 초과 등 무엇이든 "DB 응답 없음"으로 보여 줘요
+        return {"state": "down", "detail": f"DB에 연결하지 못했어요 ({type(exc).__name__})"}, None
+    return {"state": "ok", "ms": _ms(started)}, counts
+
+
+def _dict_health(counts):
+    if counts is None:
+        return {"state": "down", "detail": "DB가 응답하지 않아 확인하지 못했어요"}
+    # 고정 문구가 없으면 AI 답이 500, 위험 증상이 없으면 119 안내가 빠져요 → 둘은 0이면 down
+    empty = [name for name in ("notice_text", "symptom_keyword") if counts[name] == 0]
+    if empty:
+        return {"state": "down", "detail": f"비어 있어요: {', '.join(empty)} → 운영 탭에서 사전 다시 적재", "counts": counts}
+    return {"state": "ok", "counts": counts}
+
+
+def _ollama_health():
+    """AI 모델 서버(Ollama, k8s 밖 WSL). 목록만 물어보고 답 만들기는 안 해요
+    /api/ps로 모델이 GPU에 올라가 있는지, 문맥 길이가 백엔드 설정(OLLAMA_NUM_CTX)과 같은지도 봐요
+    (다르면 질문마다 모델을 다시 올려서 몇 초씩 느려져요. 11/11에 10분에 34번 다시 올린 적 있음)"""
+    started = time.monotonic()
+    try:
+        tags = httpx.get(f"{OLLAMA_URL}/api/tags", timeout=3).raise_for_status().json()
+        ps = httpx.get(f"{OLLAMA_URL}/api/ps", timeout=3).raise_for_status().json()
+    except (httpx.HTTPError, ValueError):
+        return {"state": "down", "detail": "응답 없음. AI 질문이 503으로 실패해요. WSL에서 Ollama가 켜져 있는지 확인해 주세요."}
+    ms = _ms(started)
+    if MODEL not in {m["name"] for m in tags.get("models", [])}:
+        return {"state": "down", "ms": ms, "detail": f"모델 {MODEL}이 설치되어 있지 않아요 (ollama pull)"}
+    loaded = next((m for m in ps.get("models", []) if m["name"] == MODEL), None)
+    if loaded is None:
+        # 5분 동안 안 쓰면 Ollama가 내려요. 다음 질문이 모델을 올리느라 10초쯤 더 걸릴 뿐 고장은 아니에요
+        return {"state": "ok", "ms": ms, "model": MODEL, "loaded": False}
+    gpu = round(loaded["size_vram"] / loaded["size"] * 100) if loaded.get("size") else None
+    ctx = loaded.get("context_length")
+    model = {"state": "ok", "ms": ms, "model": MODEL, "loaded": True, "gpu_pct": gpu, "ctx": ctx,
+             "size_gb": round(loaded["size"] / 1e9, 1)}
+    problems = []
+    if gpu is not None and gpu < 100:
+        problems.append(f"모델의 {100 - gpu}%가 GPU에 안 들어가 CPU로 돌아요 (느려짐)")
+    if ctx and ctx != OLLAMA_NUM_CTX:
+        problems.append(f"문맥 길이가 Ollama {ctx}, 백엔드 {OLLAMA_NUM_CTX}로 달라요 (질문마다 모델을 다시 올려요)")
+    if problems:
+        model.update(state="warn", detail=" · ".join(problems))
+    return model
+
+
+@router.get("/health")
+def health():
+    db, counts = _db_health()
+    return {"db": db, "ollama": _ollama_health(), "dict": _dict_health(counts)}
+
+
+# H-4 대시보드: 질문 기록(chat_log)으로 본 이용 현황
 
 
 def _daily_counts(db, days):
@@ -141,7 +199,6 @@ def dashboard(days: int = Query(7, ge=1, le=90)):
             WHERE created_at >= now() - make_interval(days => :days) AND response_ms IS NOT NULL
               AND NOT blocked   -- 차단은 AI를 안 불러서 빨라요. 섞으면 평균이 실제보다 좋아 보여요
         """), {"days": days}).mappings().one()
-        dict_counts = {name: db.execute(text(f"SELECT count(*) FROM {name}")).scalar_one() for name in DICTS}
 
     today = datetime.now(ZoneInfo("Asia/Seoul")).date()   # 컨테이너 시계는 UTC라서 한국 날짜로
     daily = []
@@ -152,12 +209,10 @@ def dashboard(days: int = Query(7, ge=1, le=90)):
 
     return {
         "days": days,
-        "status": {"db": True, "ollama": _ollama_status()},   # DB는 여기까지 왔으면 살아 있어요
         "totals": dict(totals),
         "daily": daily,
         "types": [dict(row) for row in types],
         "response": {k: (int(v) if v is not None else None) for k, v in response.items()},
-        "dict_counts": dict_counts,
     }
 
 
@@ -179,6 +234,11 @@ def _ops(method, path):
 @router.get("/ops/status")
 def ops_status():
     return _ops("GET", "/status")
+
+
+@router.get("/ops/resources")
+def ops_resources():
+    return _ops("GET", "/resources")
 
 
 @router.post("/ops/restart/{name}")
