@@ -2,6 +2,7 @@ import { Fragment, useEffect, useState } from 'react'
 import Badge from '../components/Badge'
 import { CheckDetail } from './AdminAnswerChecks'
 import { shortReason } from './adminCheckReasons'
+import { FIELD_STYLE } from './adminStyles'
 
 // 관리자 질문 기록 표 (H-1). 칩 이름은 서버(routes/admin.py FILTERS)와 같아요
 // 건수가 0인 칩은 숨겨요 (전체는 늘 보여요)
@@ -15,8 +16,6 @@ const CHIPS = [
   { id: 'unclassified', label: '분류 못 함' },
 ]
 const PAGE = 20
-// 입력칸 기본 모양 (index.css에 입력 요소 공용 스타일이 아직 없어서 여기서 맞춰요. 디자인 개선 때 공용으로 옮길 것)
-const FIELD_STYLE = { flex: '1 1 260px', minWidth: 0, minHeight: 44, padding: '0 12px', border: '1.5px solid var(--border-strong)', borderRadius: 'var(--radius)', font: 'inherit', fontSize: 15, background: 'var(--surface)', boxSizing: 'border-box' }
 
 // 이 답을 무엇이 만들었나: 차단 규칙 → 약 되물음 → 함께 먹기(DUR) → AI(검증 결과) 순서로 정해요
 function result(log) {
