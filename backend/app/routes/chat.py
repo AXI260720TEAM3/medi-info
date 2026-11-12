@@ -44,11 +44,9 @@ from ..services.synonym import common_symptoms, find_symptom
 router = APIRouter(prefix="/api", tags=["Chat"])
 
 
-# ③번 팀원의 안전 사전이 먼저 실행되며, 이 목록은 기존 코드의 긴급 신호 보조 검사만 유지합니다.
-EMERGENCY_WORDS = (
-    "의식이 없", "의식을 잃", "숨을 못 쉬", "숨이 안 쉬",
-    "입술이 파래", "피를 토", "가슴이 조이고 숨이 차", "숨이 막혀",
-)
+# 응급(119) 단어는 안전 사전(data/dict/symptom_keyword.csv) 한 곳에서만 관리해요 (11/12)
+# 예전에는 여기에 문장 8개가 따로 있었는데, 글자가 그대로 같아야만 잡아서 "가슴이 조이는 느낌이에요"를 놓쳤고
+# 관리자 사전 탭에도 안 보였어요. 사전에 없던 것(가슴+조이, 의식+잃, 입술+파래·파랗)을 사전으로 옮겼어요
 
 # 생성된 답변의 기계적 1차 검사: 의료적 정확성을 보증하지 않습니다.
 
@@ -176,15 +174,6 @@ def recent_history(history: list[ChatTurn]) -> str:
     return "\n".join(
         f"{'사용자' if turn.role == 'user' else 'AI'}: {turn.content}"
         for turn in history[-6:]
-    )
-
-
-def has_emergency_signal(question: str) -> bool:
-    if any(word in question for word in EMERGENCY_WORDS):
-        return True
-    return bool(
-        re.search(r"호흡곤란|경련", question)
-        and re.search(r"지금|갑자기|발생|생겼|있어요|왔어|하고 있어|중이야|시작", question)
     )
 
 
@@ -412,11 +401,6 @@ def ask(
         result["items_note"] = REDIRECT_LIST_NOTE if result["items"] else REDIRECT_SEARCH_NOTE
         return result
 
-    if has_emergency_signal(question):
-        return emergency_reply(
-            "응급 상황이 의심됩니다. 즉시 119에 연락하거나 응급 진료를 받으세요.",
-        )
-
         # 현재 선택된 약의 정보를 확인해 약 변경 판단에 활용
     selected_drug = None
     selected_item_name = None
@@ -460,7 +444,7 @@ def ask(
     risk, category = analysis["risk"], analysis["category"]
     # AI가 '임신 중인데 타이레놀 먹어도 돼?'를 위험 상황으로 보고 119를 안내했어요 (11/12, 같은 질문 두 번 모두)
     # 앞으로 먹어도 되는지 묻기만 하고 이미 먹은 이야기가 없으면 개인 복용 질문으로 봐요
-    # 응급 표현·과다복용은 위의 안전 사전과 has_emergency_signal이 먼저 막아요
+    # 응급 표현·과다복용은 위의 안전 사전(check_safety)이 먼저 막아요
     if risk == "위험 상황" and ASK_BEFORE_TAKING.search(question) and not ALREADY_TAKEN.search(question):
         risk = analysis["risk"] = "개인 복용 질문"
     if risk == "위험 상황":
