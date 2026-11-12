@@ -23,7 +23,10 @@ FALLBACK = "공식 자료를 바탕으로 생성한 설명의 정확성을 확�
 GUIDE = "약에 대해 궁금한 점을 물어봐 주세요"
 OFFICIAL_TEXT = "AI 설명은 정확한지 확인하지 못해서"   # AI 답이 막혀 원문을 보여 준 답 (chat_answer.py)
 # 기대와 달라도 통과로 치는 종류: 약 정보를 물었는데 AI 답 대신 원문이 나간 것도 쓸모 있는 답이에요 (따로 세어 보여 줘요)
-ALSO_OK = {"drug_info": {"official_text"}}
+ALSO_OK = {
+    "drug_info": {"official_text"},
+    "care": {"emergency"},   # 진료 안내를 기대했는데 119가 나오면 안전 쪽으로 더 강한 답이라 통과 ("이 약 먹고 숨이 차요")
+}
 
 
 def call(method, path, body=None):
@@ -64,6 +67,8 @@ def flow_of(res):
         return "ask_drug"
     if answer.startswith(GUIDE):
         return "guide"
+    if "약보다 진료가 먼저일 수 있는 증상" in answer:
+        return "care"
     if res.get("source") == "식품의약품안전처 DUR":
         return "type_caution"
     if res.get("items") and not res.get("item_seq"):
