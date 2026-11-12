@@ -7,6 +7,9 @@ function MedHistoryActions({ history, onSaved }) {
   const [times, setTimes] = useState(
     history.times_per_day?.toString() ?? ''
   )
+  const [durationDays, setDurationDays] = useState(
+  history.duration_days?.toString() ?? ''
+)
   const [stopDate, setStopDate] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -14,6 +17,7 @@ function MedHistoryActions({ history, onSaved }) {
   const openEdit = () => {
     setStartDate(history.start_date)
     setTimes(history.times_per_day?.toString() ?? '')
+    setDurationDays(history.duration_days?.toString() ?? '')
     setError('')
     setMode('edit')
   }
@@ -44,6 +48,7 @@ function MedHistoryActions({ history, onSaved }) {
       ? {
           start_date: startDate,
           times_per_day: times === '' ? null : Number(times),
+          duration_days: durationDays === '' ? null : Number(durationDays),
         }
       : {
           stopped_at: stopDate,
@@ -114,6 +119,18 @@ function MedHistoryActions({ history, onSaved }) {
                   max="24"
                   value={times}
                   onChange={e => setTimes(e.target.value)}
+                />
+              </label>
+
+              <label>
+                복용 기간 (일, 선택)
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={durationDays}
+                  onChange={e => setDurationDays(e.target.value)}
+                  placeholder="복용 일수 입력"
                 />
               </label>
             </>

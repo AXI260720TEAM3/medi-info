@@ -5,6 +5,7 @@ function MedHistoryForm({ meds, onSaved }) {
   const [medId, setMedId] = useState('')
   const [startDate, setStartDate] = useState('')
   const [timesPerDay, setTimesPerDay] = useState('')
+  const [durationDays, setDurationDays] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -23,6 +24,7 @@ function MedHistoryForm({ meds, onSaved }) {
           med_id: Number(medId),
           start_date: startDate,
           times_per_day: timesPerDay === '' ? null : Number(timesPerDay),
+          duration_days: durationDays === '' ? null : Number(durationDays),
         }),
       })
 
@@ -38,6 +40,7 @@ function MedHistoryForm({ meds, onSaved }) {
       setMedId('')
       setStartDate('')
       setTimesPerDay('')
+      setDurationDays('')
       setNotice('복용이력을 저장했어요.')
       onSaved?.()
     } catch (err) {
@@ -93,10 +96,27 @@ function MedHistoryForm({ meds, onSaved }) {
           type="number"
           min="1"
           max="24"
+          step="1"
           value={timesPerDay}
           onChange={event => setTimesPerDay(event.target.value)}
           placeholder="횟수 입력"
         />
+      </div>
+
+      <div>
+        <label htmlFor="history-duration">복용 기간 (일, 선택)</label>
+        <input
+          id="history-duration"
+          type="number"
+          min="1"
+          step="1"
+          value={durationDays}
+          onChange={event => setDurationDays(event.target.value)}
+          placeholder="복용 일수 입력"
+        />
+        <p className="muted">
+          기간을 지정하지 않으면 종료일 없이 기록돼요.
+        </p>
       </div>
 
       {error && <p role="alert" className="form-error">{error}</p>}

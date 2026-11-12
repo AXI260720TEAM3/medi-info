@@ -1,22 +1,50 @@
+
 import { useEffect, useState } from 'react'
 import ErrorMessage from './ErrorMessage'
 import Loading from './Loading'
 import MedReminderActions from './MedReminderActions'
+import {
+  ensurePushSubscription,
+  disableDevicePush,
+  isPushDisabled,
+} from '../utils/pushSubscription'
+
+const ALARM_LABELS = [
+  '아침',
+  '점심',
+  '저녁',
+  '취침 전',
+  '식전',
+  '식후',
+]
+
+function formatAlarmTime(time) {
+  const [hour, minute] = time.slice(0, 5).split(':').map(Number)
+  const period = hour < 12 ? '오전' : '오후'
+  const displayHour = hour % 12 || 12
+
+  return `${period} ${displayHour}:${String(minute).padStart(2, '0')}`
+}
 
 function MedReminder() {
   const [histories, setHistories] = useState(null)
   const [reminders, setReminders] = useState(null)
   const [historyId, setHistoryId] = useState('')
+  const [alarmLabel, setAlarmLabel] = useState('')
   const [remindTime, setRemindTime] = useState('')
   const [saving, setSaving] = useState(false)
+  const [devicePushDisabled, setDevicePushDisabled] = useState(isPushDisabled)
+  const [deviceBusy, setDeviceBusy] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
 
   const loadReminders = async () => {
     const res = await fetch('/api/med-reminders')
+
     if (!res.ok) {
-      throw new Error('복약 알림 목록을 불러오지 못했어요.')
+      throw new Error('복약 알람 목록을 불러오지 못했어요.')
     }
+
     setReminders(await res.json())
   }
 
@@ -35,13 +63,15 @@ function MedReminder() {
     load().catch(err => setError(err.message))
   }, [])
 
-  const handleSave = async (e) => {
-    e.preventDefault()
+  const handleSave = async (event) => {
+    event.preventDefault()
     setError('')
     setMessage('')
     setSaving(true)
 
     try {
+      await ensurePushSubscription()
+
       const res = await fetch('/api/med-reminders', {
         method: 'POST',
         headers: {
@@ -49,6 +79,7 @@ function MedReminder() {
         },
         body: JSON.stringify({
           history_id: Number(historyId),
+          alarm_label: alarmLabel,
           remind_time: remindTime,
         }),
       })
@@ -58,20 +89,46 @@ function MedReminder() {
         throw new Error(
           typeof data.detail === 'string'
             ? data.detail
-            : '알림 등록에 실패했어요.'
+            : '복약 알람 저장에 실패했어요.'
         )
       }
 
       await loadReminders()
-      setHistoryId('')
+
+      setAlarmLabel('')
       setRemindTime('')
-      setMessage('알림 시간을 저장했어요.')
+      setMessage('복약 알람을 저장했어요.')
     } catch (err) {
-      setError(err.message)
+      setError(err.message || '저장 중 오류가 발생했어요.')
     } finally {
       setSaving(false)
     }
   }
+
+
+  const handleDevicePushToggle = async () => {
+    setDeviceBusy(true)
+    setError('')
+    setMessage('')
+
+    try {
+      if (devicePushDisabled) {
+        // 사용자가 직접 켜기를 눌렀을 때만 다시 연결
+        await ensurePushSubscription(true)
+        setDevicePushDisabled(false)
+        setMessage('이 기기 알림을 켰어요.')
+      } else {
+        await disableDevicePush()
+        setDevicePushDisabled(true)
+        setMessage('이 기기 알림을 껐어요. 등록된 알람은 유지돼요.')
+      }
+    } catch (err) {
+      setError(err.message || '기기 알림 설정에 실패했어요.')
+    } finally {
+      setDeviceBusy(false)
+    }
+  }
+
 
   if (histories === null || reminders === null) {
     if (error) return <ErrorMessage message={error} />
@@ -82,10 +139,28 @@ function MedReminder() {
     history => history.stopped_at === null
   )
 
+  const groupedReminders = reminders.reduce((groups, reminder) => {
+    let group = groups.find(
+      item => item.history_id === reminder.history_id
+    )
+
+    if (!group) {
+      group = {
+        history_id: reminder.history_id,
+        item_name: reminder.item_name,
+        reminders: [],
+      }
+      groups.push(group)
+    }
+
+    group.reminders.push(reminder)
+    return groups
+  }, [])
+
   return (
     <section className="card med-panel">
       <div>
-        <h2 className="panel-title">복약 알림</h2>
+        <h2 className="panel-title">복약 알람</h2>
         <p className="muted" style={{ margin: '4px 0 0' }}>
           복용 중인 약의 알림 시간을 설정할 수 있어요.
         </p>
@@ -118,24 +193,54 @@ function MedReminder() {
                   key={history.history_id}
                   value={history.history_id}
                 >
-                  {history.item_name} ({history.start_date} 시작)
+                  {history.item_name}
                 </option>
               ))}
             </select>
           </div>
 
-          <div className="med-field">
-            <label htmlFor="reminder-time">
-              알림 시간
-            </label>
-            <input
-              id="reminder-time"
-              className="input"
-              type="time"
-              value={remindTime}
-              onChange={e => setRemindTime(e.target.value)}
-              required
-            />
+          <div
+            style={{
+              display: 'flex',
+              gap: '12px',
+              flexWrap: 'wrap',
+              marginTop: '12px',
+              marginBottom: '12px',
+            }}
+          >
+            <div className="med-field" style={{ flex: '1 1 150px' }}>
+              <label htmlFor="reminder-label">
+                복용 시간대
+              </label>
+              <select
+                id="reminder-label"
+                className="input"
+                value={alarmLabel}
+                onChange={e => setAlarmLabel(e.target.value)}
+                required
+              >
+                <option value="">선택해 주세요</option>
+                {ALARM_LABELS.map(label => (
+                  <option key={label} value={label}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="med-field" style={{ flex: '1 1 150px' }}>
+              <label htmlFor="reminder-time">
+                알람 시간
+              </label>
+              <input
+                id="reminder-time"
+                className="input"
+                type="time"
+                value={remindTime}
+                onChange={e => setRemindTime(e.target.value)}
+                required
+              />
+            </div>
           </div>
 
           <button
@@ -143,7 +248,7 @@ function MedReminder() {
             className="btn btn-primary"
             disabled={saving}
           >
-            {saving ? '저장 중...' : '알림 시간 저장'}
+            {saving ? '저장 중...' : '복약 알람 저장'}
           </button>
         </form>
       )}
@@ -151,50 +256,83 @@ function MedReminder() {
       {message && <p role="status" className="form-notice">{message}</p>}
       {error && <ErrorMessage message={error} />}
 
-      <h3 className="panel-subtitle">등록된 알림</h3>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '12px',
+          flexWrap: 'wrap',
+        }}
+      >
+        <h3 className="panel-subtitle">등록된 알람</h3>
 
-      {reminders.length === 0 ? (
-        <p className="muted" style={{ margin: 0 }}>아직 등록된 알림이 없어요.</p>
+        <button
+          type="button"
+          className="btn btn-secondary"
+          onClick={handleDevicePushToggle}
+          disabled={deviceBusy || saving}
+        >
+          {deviceBusy
+            ? '처리 중...'
+            : devicePushDisabled
+              ? '이 기기 알림 켜기'
+              : '이 기기 알림 끄기'}
+        </button>
+      </div>
+
+      {groupedReminders.length === 0 ? (
+        <p className="muted" style={{ margin: 0 }}>
+          아직 등록된 알람이 없어요.
+        </p>
       ) : (
         <div className="table-card">
-          <table className="med-table">
-            <thead>
-              <tr>
-                <th>약 이름</th>
-                <th>알림 시간</th>
-                <th>상태</th>
-                <th>관리</th>
-              </tr>
-            </thead>
-            <tbody>
-              {reminders.map(reminder => (
-                <tr key={reminder.reminder_id}>
-                  <td>{reminder.item_name}</td>
-                  <td>{reminder.remind_time.slice(0, 5)}</td>
-                  <td>
+          {groupedReminders.map(group => (
+            <div
+              key={group.history_id}
+              style={{
+                padding: '12px',
+                borderBottom: '1px solid #ddd',
+              }}
+            >
+              <strong>{group.item_name}</strong>
+
+              {group.reminders.map(reminder => (
+                <div
+                  key={reminder.reminder_id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    flexWrap: 'wrap',
+                    marginTop: '8px',
+                  }}
+                >
+                  <span>
+                    {reminder.alarm_label ?? '시간대 미설정'}
+                    {' · '}
+                    {formatAlarmTime(reminder.remind_time)}
+                  </span>
+
+                  <span>
                     {reminder.stopped_at
                       ? '복용 중단'
                       : reminder.is_enabled
-                        ? '설정 켜짐'
-                        : '설정 꺼짐'}
-                  </td>
-                  <td>
-                 <MedReminderActions
-                reminder={reminder}
-                onSaved={loadReminders}
-  />
-</td>
-                </tr>
+                        ? '켜짐'
+                        : '꺼짐'}
+                  </span>
+
+                  <MedReminderActions
+                    reminder={reminder}
+                    onSaved={loadReminders}
+                  />
+                </div>
               ))}
-            </tbody>
-          </table>
+            </div>
+          ))}
         </div>
       )}
 
-      <p className="muted" style={{ margin: 0 }}>
-        현재는 알림 시간 저장 기능이며,
-        실제 알림 발송은 아직 구현 전이에요.
-      </p>
     </section>
   )
 }
