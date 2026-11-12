@@ -11,6 +11,7 @@ from ..services.med_history import (
     InvalidHistoryDateError,
     MedNotRegisteredError,
     add_use_history,
+    delete_use_history,
     list_use_history,
     stop_use_history,
     update_use_history,
@@ -118,4 +119,18 @@ def stop_history(
         raise HTTPException(
             status_code=400,
             detail="중단할 수 없는 기록이에요. 날짜나 기존 중단 상태를 확인해 주세요.",
+        )
+        
+# 5. 복용이력 삭제
+@router.delete("/{history_id}", status_code=204)
+def remove_history(
+    history_id: int,
+    user: dict = Depends(require_health_consent),
+):
+    try:
+        delete_use_history(user["user_id"], history_id)
+    except HistoryNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail="복용이력을 찾을 수 없어요.",
         )

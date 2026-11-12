@@ -1,4 +1,3 @@
-
 import { useState } from 'react'
 
 function MedHistoryActions({ history, onSaved }) {
@@ -8,8 +7,8 @@ function MedHistoryActions({ history, onSaved }) {
     history.times_per_day?.toString() ?? ''
   )
   const [durationDays, setDurationDays] = useState(
-  history.duration_days?.toString() ?? ''
-)
+    history.duration_days?.toString() ?? ''
+  )
   const [stopDate, setStopDate] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -39,7 +38,6 @@ function MedHistoryActions({ history, onSaved }) {
     setSaving(true)
 
     const isEdit = mode === 'edit'
-
     const url = isEdit
       ? `/api/med-history/${history.history_id}`
       : `/api/med-history/${history.history_id}/stop`
@@ -50,16 +48,12 @@ function MedHistoryActions({ history, onSaved }) {
           times_per_day: times === '' ? null : Number(times),
           duration_days: durationDays === '' ? null : Number(durationDays),
         }
-      : {
-          stopped_at: stopDate,
-        }
+      : { stopped_at: stopDate }
 
     try {
       const res = await fetch(url, {
         method: isEdit ? 'PUT' : 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       })
 
@@ -81,15 +75,77 @@ function MedHistoryActions({ history, onSaved }) {
     }
   }
 
+  const handleDelete = async () => {
+    const confirmed = window.confirm(
+      '복용이력을 삭제하시겠어요?\n연결된 복약 알람도 함께 삭제되며 복구할 수 없어요.'
+    )
+
+    if (!confirmed) return
+
+    setError('')
+    setSaving(true)
+
+    try {
+      const res = await fetch(
+        `/api/med-history/${history.history_id}`,
+        { method: 'DELETE' }
+      )
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(
+          typeof data.detail === 'string'
+            ? data.detail
+            : '복용이력을 삭제하지 못했어요.'
+        )
+      }
+
+      setMode('')
+      onSaved()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <div>
-      <div className="med-actions">
-        <button type="button" className="btn btn-secondary btn-small" onClick={openEdit}>
+      <div
+        className="med-actions"
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'max-content max-content',
+          gap: '6px',
+          justifyContent: 'start',
+          alignItems: 'start',
+          width: 'max-content',
+        }}
+      >
+        <button
+          type="button"
+          className="btn btn-secondary btn-small"
+          onClick={openEdit}
+          disabled={saving}
+        >
           수정
         </button>
-
+        <button
+          type="button"
+          className="btn btn-secondary btn-small"
+          onClick={handleDelete}
+          disabled={saving}
+        >
+          {saving ? '처리 중...' : '삭제'}
+        </button>
         {!history.stopped_at && (
-          <button type="button" className="btn btn-secondary btn-small" onClick={openStop}>
+          <button
+            type="button"
+            className="btn btn-secondary btn-small"
+            onClick={openStop}
+            disabled={saving}
+            style={{ gridColumn: '1 / -1' }}
+          >
             복용 중단
           </button>
         )}
@@ -109,7 +165,6 @@ function MedHistoryActions({ history, onSaved }) {
                   required
                 />
               </label>
-
               <label>
                 하루 복용 횟수 (선택)
                 <input
@@ -121,11 +176,11 @@ function MedHistoryActions({ history, onSaved }) {
                   onChange={e => setTimes(e.target.value)}
                 />
               </label>
-
               <label>
                 복용 기간 (일, 선택)
                 <input
                   type="number"
+                  className="input"
                   min="1"
                   step="1"
                   value={durationDays}
@@ -148,10 +203,13 @@ function MedHistoryActions({ history, onSaved }) {
             </label>
           )}
 
-          <button type="submit" className="btn btn-primary btn-small" disabled={saving}>
+          <button
+            type="submit"
+            className="btn btn-primary btn-small"
+            disabled={saving}
+          >
             {saving ? '저장 중...' : '저장'}
           </button>
-
           <button
             type="button"
             className="btn btn-secondary btn-small"
@@ -162,7 +220,6 @@ function MedHistoryActions({ history, onSaved }) {
           </button>
         </form>
       )}
-
       {error && <p role="alert" className="form-error">{error}</p>}
     </div>
   )

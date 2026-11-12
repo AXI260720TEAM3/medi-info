@@ -27,7 +27,9 @@ function MyMeds() {
   const [error, setError] = useState('')
   const [deleteError, setDeleteError] = useState('')
   const [checkKey, setCheckKey] = useState(0)
+  const [reminderKey, setReminderKey] = useState(0)
   const [listKey, setListKey] = useState(0)  // 사진으로 약을 넣으면 바꿔서 목록을 다시 받아요
+  const [medPage, setMedPage] = useState(1)
 
   useEffect(() => {
     fetch('/api/my-meds')
@@ -78,6 +80,14 @@ function MyMeds() {
   if (error) return <ErrorMessage message={error} />
   if (meds === null) return <Loading />
 
+  const pageSize = 6
+  const totalMedPages = Math.ceil(meds.length / pageSize)
+  const currentMedPage = Math.min(medPage, Math.max(1, totalMedPages))
+  const visibleMeds = meds.slice(
+    (currentMedPage - 1) * pageSize,
+    currentMedPage * pageSize
+)
+
   // 화면 4단계 (11/11): 넓은 화면은 왼쪽(약봉지 사진으로 추가 → 담은 약 → 함께 먹기 결과 → 복용 이력·알림)과
   // 오른쪽(복용자 프로필) 두 칸. 좁은 화면은 왼쪽 칸이 먼저 오도록 아래로 쌓여요
   return (<>
@@ -104,7 +114,7 @@ function MyMeds() {
             </tr>
           </thead>
           <tbody>
-            {meds.map(med => (
+            {visibleMeds.map(med => (
               <tr key={med.med_id}>
                 <td><Link to={`/drugs/${med.item_seq}`}><strong>{med.item_name}</strong></Link></td>
                 <td title={ingredients?.[med.item_seq]?.join(', ')}>{ingredientText(ingredients, med.item_seq)}</td>
@@ -118,12 +128,58 @@ function MyMeds() {
             ))}
           </tbody>
         </table>
+
+        {totalMedPages > 1 && (
+  <div style={{
+    display: 'flex',
+    justifyContent: 'center',
+    gap: '6px',
+    padding: '16px',
+    flexWrap: 'wrap',
+  }}>
+    <button
+      type="button"
+      className="btn btn-secondary btn-small"
+      disabled={currentMedPage === 1}
+      onClick={() => setMedPage(currentMedPage - 1)}
+    >
+      〈
+    </button>
+
+    {Array.from({ length: totalMedPages }, (_, i) => i + 1).map(number => (
+      <button
+        key={number}
+        type="button"
+        className={`btn btn-small ${
+          currentMedPage === number ? 'btn-primary' : 'btn-secondary'
+        }`}
+        onClick={() => setMedPage(number)}
+        aria-current={currentMedPage === number ? 'page' : undefined}
+      >
+        {number}
+      </button>
+    ))}
+
+    <button
+      type="button"
+      className="btn btn-secondary btn-small"
+      disabled={currentMedPage === totalMedPages}
+      onClick={() => setMedPage(currentMedPage + 1)}
+    >
+      〉
+    </button>
+  </div>
+)}
+
       </div>
     )}
     {meds.length >= 2 && <MedCheck key={checkKey} />}
 
-    <MedHistory meds={meds} />
-    <MedReminder />
+   <MedHistory
+  meds={meds}
+  onChanged={() => setReminderKey(key => key + 1)}
+/>
+<MedReminder key={reminderKey} />
     </div>
     <aside className="mymeds-side">
       {/* 약이 없어도 늘 보여요. 프로필은 AI 질문 답에도 쓰여서, 약을 다 지운 뒤에도 바꿀 수 있어야 해요 (11/12) */}

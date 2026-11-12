@@ -113,6 +113,8 @@ function MedHistoryForm({ meds, onSaved }) {
           value={durationDays}
           onChange={event => setDurationDays(event.target.value)}
           placeholder="복용 일수 입력"
+          className="input"
+          style={{ width: '100%', boxSizing: 'border-box' }}
         />
         <p className="muted">
           기간을 지정하지 않으면 종료일 없이 기록돼요.
