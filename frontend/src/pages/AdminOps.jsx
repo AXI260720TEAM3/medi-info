@@ -79,7 +79,7 @@ function ResourcePanel() {
       {data && (<>
         {!data.metrics && <p><Badge type="caution">사용량 없음</Badge> metrics-server에서 값을 못 받았어요. k3s를 켠 직후라면 1분쯤 뒤에 다시 보세요.</p>}
         <h3>이 PC (노드)</h3>
-        <p className="muted">WSL 전체 값이에요. k8s 밖의 Ollama와 automachine도 같은 WSL을 나눠 써요.</p>
+        <p className="muted">WSL 전체 값이에요.</p>
         <div className="table-card">
           <table className="med-table">
             <thead><tr><th>노드</th><th>CPU</th><th>메모리</th></tr></thead>
@@ -115,6 +115,95 @@ function ResourcePanel() {
   )
 }
 
+// 15초마다 다시 부르는 패널용 (탭을 떠나면 멈춰요)
+function usePolling(url) {
+  const [data, setData] = useState(null)
+  const [error, setError] = useState('')
+  useEffect(() => {
+    const load = () => call('GET', url).then((d) => { setData(d); setError('') }).catch((err) => setError(err.message))
+    load()
+    const timer = setInterval(load, 15000)
+    return () => clearInterval(timer)
+  }, [url])
+  return [data, error]
+}
+
+const SERVICE_LABELS = { backend: 'backend (API·AI 질문)', web: 'web (화면)' }
+
+// 요청 지표: ops가 Traefik 숫자를 15초마다 읽어 최근 1분·5분을 계산해요 (ops/app/traffic.py)
+function TrafficPanel() {
+  const [data, error] = usePolling('/api/admin/ops/traffic')
+  return (
+    <section className="card">
+      <h2>요청 지표 <span className="muted" style={{ fontWeight: 500 }}>최근 {data?.window_s ? `${data.window_s}초` : '1분'}</span></h2>
+      <p className="muted">브라우저·휴대폰에서 Traefik을 거쳐 온 요청만 세요. 기록은 최근 5분만 ops 메모리에 있어요.</p>
+      {error && <p style={{ color: 'var(--danger-text)' }}>{error}</p>}
+      {data && !data.available && <p><Badge type="caution">읽기 실패</Badge> Traefik 지표를 못 읽었어요 ({data.error})</p>}
+      {data && data.services.length === 0 && <p>모으는 중이에요. 30초쯤 뒤에 숫자가 보여요.</p>}
+      {data && data.services.length > 0 && (
+        <div className="table-card">
+          <table className="med-table">
+            <thead><tr><th>서비스</th><th>요청</th><th>초당</th><th>4xx</th><th>5xx (5분)</th><th>응답 95%</th></tr></thead>
+            <tbody>
+              {data.services.map(s => (
+                <tr key={s.name}>
+                  <td>{SERVICE_LABELS[s.name] ?? s.name}</td>
+                  <td>{s.requests}</td>
+                  <td>{s.per_second.toFixed(2)}</td>
+                  <td>{s.client_errors}</td>
+                  <td>{s.server_errors_long > 0
+                    ? <Badge type="caution">{s.server_errors} ({s.server_errors_long})</Badge>
+                    : `${s.server_errors} (0)`}</td>
+                  <td>{s.p95_over ? <Badge type="caution">5초 넘음</Badge> : s.p95_le != null ? `${s.p95_le}초 안` : '-'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="muted">응답 시간은 Traefik이 0.1·0.3·1.2·5초 칸으로만 세서 “95%가 이 칸 안”으로 보여요. AI 질문은 보통 5초 칸에 들어요.</p>
+    </section>
+  )
+}
+
+const ROLLOUT = { 완료: 'notice', '진행 중': 'caution', 대기: 'caution', 멈춤: 'taboo' }
+
+// 배포 이력: Deployment의 지난 버전(ReplicaSet)들. 버전 이름은 deploy.sh가 붙인 커밋 번호예요
+function DeploymentsPanel() {
+  const [data, error] = usePolling('/api/admin/ops/deployments')
+  return (
+    <section className="card">
+      <h2>배포 이력</h2>
+      <p className="muted">버전은 커밋 번호예요(커밋 안 한 코드는 -dirty-시각). 되돌리기는 README의 <code>kubectl rollout undo</code>로 해요.</p>
+      {error && <p style={{ color: 'var(--danger-text)' }}>{error}</p>}
+      {data?.deployments.map(d => (
+        <div key={d.name} style={{ marginBottom: 16 }}>
+          <h3 style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            {d.name} <Badge type={ROLLOUT[d.state] ?? 'none'}>{d.state}</Badge>
+            <span className="muted" style={{ fontWeight: 500 }}>지금 {d.version} · 마지막 변경 {fmt(d.last_change)}</span>
+          </h3>
+          {d.state === '멈춤' && <p className="muted">{d.message}</p>}
+          <div className="table-card">
+            <table className="med-table">
+              <thead><tr><th>번호</th><th>버전</th><th>만든 시각</th><th></th></tr></thead>
+              <tbody>
+                {d.history.map(h => (
+                  <tr key={h.revision}>
+                    <td>{h.revision}</td>
+                    <td><code>{h.version}</code></td>
+                    <td>{fmt(h.created)}</td>
+                    <td>{h.current && <Badge type="notice">지금</Badge>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ))}
+    </section>
+  )
+}
+
 // 백업과 저장 공간: 매일 12:40 db-backup이 backups/에 .dump를 만들고 최근 3개만 남겨요 (k8s/backup.yaml)
 function BackupPanel() {
   const [data, setData] = useState(null)
@@ -124,7 +213,7 @@ function BackupPanel() {
 
   const load = useCallback(() => {
     call('GET', '/api/admin/ops/backups')
-      .then((d) => { setData(d); setError('') })
+      .then((d) => { setData({ ...d, loadedAt: Date.now() }); setError('') })   // 지금 시각은 그릴 때가 아니라 받은 때 재요
       .catch((err) => setError(err.message))
   }, [])
   useEffect(() => { load() }, [load])
@@ -147,7 +236,7 @@ function BackupPanel() {
   if (!data) return <section className="card"><h2>백업과 저장 공간</h2><p>불러오는 중...</p></section>
 
   const newest = data.files[0]
-  const ageHours = newest ? (Date.now() - new Date(newest.at)) / 36e5 : null
+  const ageHours = newest ? (data.loadedAt - new Date(newest.at)) / 36e5 : null
   const capacity = toMib(data.pvc_capacity)
   const usedPct = capacity ? Math.min(100, (data.db_size_mib / capacity) * 100) : null
   const last = data.last_job
@@ -271,6 +360,8 @@ function AdminOps() {
       </div>
     </section>
 
+    <TrafficPanel />
+    <DeploymentsPanel />
     <ResourcePanel />
 
     <section className="card">

@@ -6,6 +6,7 @@ import AlertBox from '../components/AlertBox'
 import DrugImage from '../components/DrugImage'
 import Badge from '../components/Badge'
 import DurBadges from '../components/DurBadges'
+import PageTitle from '../components/PageTitle'
 
 const PAGE_SIZE = 10
 const PAGE_LINKS = 5   // 쪽 번호를 한 번에 몇 개 보여 줄지
@@ -72,14 +73,14 @@ function DrugSearch() {
 
   return (
     <div style={COLUMN}>
-      <h1 className="title">약 찾기</h1>
+      <PageTitle icon="search" title="약 찾기">약 이름이나 증상으로 찾아보세요</PageTitle>
 
-      <form className="card" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: 16, borderRadius: 16 }} onSubmit={handleSearch}>
+      <form className="card search-form" onSubmit={handleSearch}>
         <label htmlFor="drug-search" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>약 이름이나 증상</label>
-        <input id="drug-search" className="input" type="search" style={{ flex: '1 1 260px', minWidth: 0, fontSize: 17, minHeight: 48 }}
+        <input id="drug-search" className="input" type="search"
           placeholder="약 이름이나 증상을 말해 보세요 (예: 머리가 지끈거려요)"
           value={keyword} onChange={e => setKeyword(e.target.value)} />
-        <button type="submit" className="btn btn-primary" style={{ minHeight: 48, padding: '0 24px' }} disabled={loading}>검색</button>
+        <button type="submit" className="btn btn-primary" disabled={loading}>검색</button>
       </form>
 
       {q === '' && (
@@ -133,14 +134,13 @@ function DrugSearch() {
       )}
 
       {showResult && answer.items.length > 0 && (
-        <section aria-label="검색 결과" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        // 화면 4단계 (11/11): 카드를 하나씩 띄우는 대신 한 판 안의 줄 목록. 줄 전체를 누르면 상세로 가요
+        <section aria-label="검색 결과" className="result-list">
           {answer.items.map(drug => (
-            <article key={drug.item_seq} className="card" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 16 }}>
-              <DrugImage src={drug.item_image} alt={drug.item_name} size={72} />
-              <div style={{ flex: '1 1 240px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <Link to={`/drugs/${drug.item_seq}`} className="card-title" style={{ color: 'var(--text)', lineHeight: 1.35, overflowWrap: 'anywhere' }}>
-                  {drug.item_name}
-                </Link>
+            <Link key={drug.item_seq} to={`/drugs/${drug.item_seq}`} className="result-row">
+              <DrugImage src={drug.item_image} alt={drug.item_name} size={56} />
+              <div className="result-row-text">
+                <span className="result-row-name">{drug.item_name}</span>
                 <span className="muted">{drug.entp_name}</span>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6}}>
                   <Badge type="notice">{drug.etc_otc ?? '일반의약품'}</Badge>
@@ -148,8 +148,11 @@ function DrugSearch() {
                   <DurBadges itemSeq={drug.item_seq} />
                 </div>
               </div>
-              <Link to={`/drugs/${drug.item_seq}`} className="btn btn-secondary">상세 보기</Link>
-            </article>
+              <svg className="result-row-arrow" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M9 6l6 6-6 6" />
+              </svg>
+            </Link>
           ))}
         </section>
       )}

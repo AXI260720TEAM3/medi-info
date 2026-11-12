@@ -55,13 +55,14 @@ function MedHistoryForm({ meds, onSaved }) {
   }
 
   return (
-    <form onSubmit={handleSubmit}>
-      <h3>복용 시작 기록</h3>
+    <form onSubmit={handleSubmit} className="med-form">
+      <h3 className="panel-subtitle">복용 시작 기록</h3>
 
-      <div>
+      <div className="med-field">
         <label htmlFor="history-med">약 선택</label>
         <select
           id="history-med"
+          className="input"
           value={medId}
           onChange={event => setMedId(event.target.value)}
           required
@@ -75,10 +76,11 @@ function MedHistoryForm({ meds, onSaved }) {
         </select>
       </div>
 
-      <div>
+      <div className="med-field">
         <label htmlFor="history-start">복용 시작일</label>
         <input
           id="history-start"
+          className="input"
           type="date"
           value={startDate}
           onChange={event => setStartDate(event.target.value)}
@@ -86,10 +88,11 @@ function MedHistoryForm({ meds, onSaved }) {
         />
       </div>
 
-      <div>
+      <div className="med-field">
         <label htmlFor="history-times">하루 복용 횟수 (선택)</label>
         <input
           id="history-times"
+          className="input"
           type="number"
           min="1"
           max="24"
@@ -116,8 +119,8 @@ function MedHistoryForm({ meds, onSaved }) {
         </p>
       </div>
 
-      {error && <p role="alert">{error}</p>}
-      {notice && <p role="status">{notice}</p>}
+      {error && <p role="alert" className="form-error">{error}</p>}
+      {notice && <p role="status" className="form-notice">{notice}</p>}
 
       <button
         type="submit"

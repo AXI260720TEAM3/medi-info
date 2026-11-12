@@ -13,6 +13,7 @@ from sqlalchemy import text
 from ..config import OLLAMA_NUM_CTX, OLLAMA_URL, OPS_TOKEN, OPS_URL
 from ..database import SessionLocal
 from ..deps import admin_host_only, require_admin
+from ..services.auth import verify_password
 from ..services.chat_common import MODEL
 from ..services.safety import check_safety
 from ..services.synonym import find_symptom
@@ -22,37 +23,66 @@ from ..services.synonym import find_symptom
 # 주소 확인을 먼저: Funnel로 온 요청은 로그인 여부와 상관없이 404 (관리자 API가 있다는 것도 알리지 않아요)
 router = APIRouter(prefix="/api/admin", tags=["admin"], dependencies=[Depends(admin_host_only), Depends(require_admin)])
 
-# 질문 기록 거르기: 화면의 선택 상자와 같은 이름
+# 질문 기록 거르기: 화면의 결과 칩과 같은 이름. 정해진 글자만 SQL에 넣어요 (사용자 입력은 :q 같은 값으로만)
 FILTERS = {
     "all": "TRUE",
-    "blocked": "blocked",                 # 차단·안내로 돌린 질문 (위험 신호, 진단 요청 등)
-    "unclassified": "question_type IS NULL",  # 분류 못 한 질문 → 사전에 단어를 더할 후보
-    "reported": "reported OR feedback = -1",  # 사용자가 신고했거나 "도움 안 됨"
+    "blocked": "blocked",                             # 차단·안내 (위험 신호 119, 추천·진단 요청 거절)
+    "ask_drug": "question_type = '약확인'",            # 어느 약인지 되물음
+    "check_failed": "check_reason IS NOT NULL",       # AI 첫 답이 검증에 걸림 (다시 써서 통과 또는 대체)
+    "reported": "(reported OR feedback = -1)",        # 사용자가 신고했거나 "도움 안 됨"
+    "interaction": "question_type = '함께먹기'",       # 함께 먹기 판정 (DUR)
+    "unclassified": "question_type IS NULL",          # 그 밖에 종류를 못 정한 답
 }
+
+
+def _like(q):
+    """검색어를 LIKE 값으로. % _ 는 LIKE에서 특별한 글자라 그대로 찾도록 막아요"""
+    return "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
 
 
 @router.get("/chat-logs")
 def chat_logs(
-    only: Literal["all", "blocked", "unclassified", "reported"] = "all",
-    limit: int = Query(50, ge=1, le=100),
+    only: Literal["all", "blocked", "ask_drug", "check_failed", "reported", "interaction", "unclassified"] = "all",
+    q: str = Query("", max_length=100),
+    days: int = Query(7, ge=1, le=90),   # 화면은 7·30·90 (Literal[7, 30, 90]은 주소의 "30"을 숫자로 못 바꿔서 422)
+    hide_test: bool = True,
+    limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
-    """H-1 질문 기록. 질문은 저장할 때 이미 개인정보 모양을 가려 둬요 (I-7)"""
-    where = FILTERS[only]   # 정해진 글자만 넣어요 (사용자 입력을 SQL에 직접 넣지 않아요)
+    """H-1 질문 기록 표. 질문은 저장할 때 이미 개인정보 모양을 가려 둬요 (I-7)
+    칩마다 건수(counts)는 기간·검색·시험 빼기를 적용한 범위에서 세요"""
+    base = ["created_at >= now() - make_interval(days => :days)"]
+    params = {"days": days, "limit": limit, "offset": offset}
+    if hide_test:
+        base.append("NOT is_test")
+    if q.strip():
+        params["q"] = _like(q.strip())
+        base.append("(question ILIKE :q OR item_name ILIKE :q)")
+    base_where = " AND ".join(base)
+    counts_sql = ", ".join(f"count(*) FILTER (WHERE {cond}) AS {name}" for name, cond in FILTERS.items())
     with SessionLocal() as db:
-        total = db.execute(text(f"SELECT count(*) FROM chat_log WHERE {where}")).scalar_one()
+        counts = db.execute(text(f"SELECT {counts_sql} FROM chat_log WHERE {base_where}"), params).mappings().one()
+        hidden = db.execute(text(
+            "SELECT count(*) FROM chat_log WHERE is_test AND created_at >= now() - make_interval(days => :days)"
+        ), {"days": days}).scalar_one() if hide_test else 0
         rows = db.execute(
             text(f"""
-                SELECT log_id, question, answer, question_type, target_item_seq,
-                       blocked, block_reason, feedback, reported, created_at
+                SELECT log_id, question, answer, question_type, target_item_seq, item_name,
+                       blocked, block_reason, feedback, reported, response_ms, created_at,
+                       check_result, check_reason, retry_ms, is_test
                 FROM chat_log
-                WHERE {where}
+                WHERE {base_where} AND {FILTERS[only]}
                 ORDER BY log_id DESC
                 LIMIT :limit OFFSET :offset
             """),
-            {"limit": limit, "offset": offset},
+            params,
         ).mappings().all()
-    return {"total": total, "items": [dict(row) for row in rows]}
+    return {
+        "total": counts[only],
+        "counts": dict(counts),
+        "hidden_test": hidden,
+        "items": [{**row, "created_at": row["created_at"].isoformat()} for row in rows],
+    }
 
 
 # H-2 사전 보기. 원본은 data/dict/*.csv (PR로 고쳐요). 여기서는 지금 DB에 들어 있는 내용을 보여 줘요
@@ -169,7 +199,7 @@ def _daily_counts(db, days):
                count(*) AS total,
                count(*) FILTER (WHERE blocked) AS blocked
         FROM chat_log
-        WHERE created_at >= now() - make_interval(days => :days)
+        WHERE created_at >= now() - make_interval(days => :days) AND NOT is_test
         GROUP BY day
     """), {"days": days}).mappings().all()
     return {row["day"]: (row["total"], row["blocked"]) for row in rows}
@@ -182,13 +212,14 @@ def dashboard(days: int = Query(7, ge=1, le=90)):
         totals = db.execute(text("""
             SELECT count(*) AS questions,
                    count(*) FILTER (WHERE blocked) AS blocked,
+                   count(*) FILTER (WHERE question_type = '약확인') AS ask_drug,
                    count(*) FILTER (WHERE question_type IS NULL) AS unclassified,
                    count(*) FILTER (WHERE reported OR feedback = -1) AS reported
-            FROM chat_log WHERE created_at >= now() - make_interval(days => :days)
+            FROM chat_log WHERE created_at >= now() - make_interval(days => :days) AND NOT is_test
         """), {"days": days}).mappings().one()
         types = db.execute(text("""
             SELECT coalesce(question_type, '분류 못 함') AS type, count(*) AS count
-            FROM chat_log WHERE created_at >= now() - make_interval(days => :days)
+            FROM chat_log WHERE created_at >= now() - make_interval(days => :days) AND NOT is_test
             GROUP BY 1 ORDER BY 2 DESC
         """), {"days": days}).mappings().all()
         response = db.execute(text("""
@@ -196,7 +227,7 @@ def dashboard(days: int = Query(7, ge=1, le=90)):
                    round(avg(response_ms)) AS avg_ms,
                    round(percentile_cont(0.95) WITHIN GROUP (ORDER BY response_ms)) AS p95_ms
             FROM chat_log
-            WHERE created_at >= now() - make_interval(days => :days) AND response_ms IS NOT NULL
+            WHERE created_at >= now() - make_interval(days => :days) AND NOT is_test AND response_ms IS NOT NULL
               AND NOT blocked   -- 차단은 AI를 안 불러서 빨라요. 섞으면 평균이 실제보다 좋아 보여요
         """), {"days": days}).mappings().one()
 
@@ -229,20 +260,20 @@ def answer_checks(days: int = Query(7, ge=1, le=90)):
                    count(*) FILTER (WHERE check_result = 'fallback') AS fallback,
                    count(*) FILTER (WHERE check_result IS NULL) AS no_ai,
                    round(avg(retry_ms)) AS retry_ms_avg
-            FROM chat_log WHERE created_at >= now() - make_interval(days => :days)
+            FROM chat_log WHERE created_at >= now() - make_interval(days => :days) AND NOT is_test
         """), period).mappings().one()
         reasons = db.execute(text("""
             SELECT check_reason AS reason, count(*) AS n,
                    count(*) FILTER (WHERE check_result = 'retry_pass') AS saved,
                    count(*) FILTER (WHERE check_result = 'fallback') AS replaced
             FROM chat_log
-            WHERE created_at >= now() - make_interval(days => :days) AND check_reason IS NOT NULL
+            WHERE created_at >= now() - make_interval(days => :days) AND NOT is_test AND check_reason IS NOT NULL
             GROUP BY 1 ORDER BY 2 DESC, 1
         """), period).mappings().all()
         recent = db.execute(text("""
             SELECT log_id, question, check_reason, check_result, created_at
             FROM chat_log
-            WHERE created_at >= now() - make_interval(days => :days) AND check_reason IS NOT NULL
+            WHERE created_at >= now() - make_interval(days => :days) AND NOT is_test AND check_reason IS NOT NULL
             ORDER BY created_at DESC LIMIT 5
         """), period).mappings().all()
     return {
@@ -321,3 +352,96 @@ def ops_backups():
 def ops_backup_now(user: dict = Depends(require_admin)):
     logging.warning("관리자 %s: 지금 백업", user["login_id"])
     return _ops("POST", "/backup-now")
+
+
+@router.get("/ops/traffic")
+def ops_traffic():
+    return _ops("GET", "/traffic")
+
+
+@router.get("/ops/deployments")
+def ops_deployments():
+    return _ops("GET", "/deployments")
+
+
+# 계정 탭: 사용자 목록과 관리자 승격·해제
+# - 내 권한은 바꿀 수 없어요. 바꾸는 사람은 늘 관리자로 남으니, 관리자가 0명이 되는 일이 없어요
+# - 바꿀 때 내 비밀번호를 한 번 더 받아요. 자리를 비운 사이 누가 화면을 만져도 권한은 못 바꿔요
+# - role은 요청마다 DB에서 읽어서(deps.get_current_user), 바꾸면 그 사람의 다음 요청부터 바로 적용돼요
+USER_ROLES = {"all": "TRUE", "admin": "role = 'admin'", "user": "role = 'user'"}
+
+
+def _mask_email(email):
+    """ab***@gmail.com: 목록에서 계정을 구별할 만큼만 보여 줘요"""
+    if not email or "@" not in email:
+        return None
+    name, domain = email.split("@", 1)
+    return f"{name[:2]}***@{domain}"
+
+
+@router.get("/users")
+def users(
+    q: str = Query("", max_length=50),
+    role: Literal["all", "admin", "user"] = "all",
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    me: dict = Depends(require_admin),
+):
+    params = {"limit": limit, "offset": offset}
+    base = "TRUE"
+    if q.strip():
+        params["q"] = _like(q.strip())
+        base = "(login_id ILIKE :q OR display_name ILIKE :q)"
+    counts_sql = ", ".join(f"count(*) FILTER (WHERE {cond}) AS {name}" for name, cond in USER_ROLES.items())
+    with SessionLocal() as db:
+        counts = db.execute(text(f"SELECT {counts_sql} FROM app_user WHERE {base}"), params).mappings().one()
+        rows = db.execute(text(f"""
+            SELECT user_id, login_id, display_name, email, role, created_at, last_login_at
+            FROM app_user WHERE {base} AND {USER_ROLES[role]}
+            ORDER BY (role = 'admin') DESC, user_id DESC
+            LIMIT :limit OFFSET :offset
+        """), params).mappings().all()
+        history = db.execute(text("""
+            SELECT target_login_id, changed_by_login_id, old_role, new_role, created_at
+            FROM role_change_log ORDER BY change_id DESC LIMIT 10
+        """)).mappings().all()
+    iso = lambda value: value.isoformat() if value else None
+    return {
+        "me": me["user_id"],
+        "total": counts[role],
+        "counts": dict(counts),
+        "items": [{**row, "email": _mask_email(row["email"]), "created_at": iso(row["created_at"]),
+                   "last_login_at": iso(row["last_login_at"])} for row in rows],
+        "history": [{**row, "created_at": iso(row["created_at"])} for row in history],
+    }
+
+
+class RoleChange(BaseModel):
+    role: Literal["user", "admin"]
+    password: str = Field(min_length=1, max_length=128)   # 바꾸는 관리자 본인의 비밀번호
+
+
+@router.patch("/users/{user_id}/role")
+def change_role(user_id: int, data: RoleChange, me: dict = Depends(require_admin)):
+    if user_id == me["user_id"]:
+        raise HTTPException(status_code=400, detail="내 권한은 여기서 바꿀 수 없어요. 다른 관리자에게 부탁해 주세요.")
+    with SessionLocal() as db:
+        my_hash = db.execute(text("SELECT password_hash FROM app_user WHERE user_id = :id"), {"id": me["user_id"]}).scalar()
+        if not my_hash or not verify_password(data.password, my_hash):
+            raise HTTPException(status_code=403, detail="비밀번호가 맞지 않아요.")
+        # FOR UPDATE: 두 관리자가 동시에 같은 계정을 바꿔도 기록이 어긋나지 않게 차례로 처리해요
+        target = db.execute(text("SELECT login_id, role FROM app_user WHERE user_id = :id FOR UPDATE"),
+                            {"id": user_id}).mappings().first()
+        if target is None:
+            raise HTTPException(status_code=404, detail="없는 계정이에요.")
+        if target["role"] == data.role:
+            return {"user_id": user_id, "role": data.role, "changed": False}
+        db.execute(text("UPDATE app_user SET role = :role WHERE user_id = :id"), {"role": data.role, "id": user_id})
+        db.execute(text("""
+            INSERT INTO role_change_log (target_user_id, target_login_id, changed_by_user_id, changed_by_login_id, old_role, new_role)
+            VALUES (:target, :target_login, :by, :by_login, :old, :new)
+        """), {"target": user_id, "target_login": target["login_id"], "by": me["user_id"], "by_login": me["login_id"],
+               "old": target["role"], "new": data.role})
+        db.commit()
+    logging.warning("관리자 %s: %s 권한 %s → %s", me["login_id"], target["login_id"], target["role"], data.role)
+    return {"user_id": user_id, "role": data.role, "changed": True}

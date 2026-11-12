@@ -22,7 +22,7 @@ import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from ..services.chat_common import SOURCE, DRUG_FIELDS, FOLLOWUPS
@@ -30,24 +30,25 @@ from ..services.chat_analysis import analyze_question
 from ..services.chat_answer import _answer_from_official_info
 from ..services.chat_drug import find_chat_drug, get_chat_drug_detail
 from ..services.drug_api import search_by_efcy
-from ..services.drug_search import search_merged
+from ..services.drug_search import search_by_ingredient, search_merged
 from ..services.privacy import mask_personal
-from ..services.dur_api import check_interaction, get_ingredients
+from ..services.dur_api import check_interaction, get_ingredients, profile_cautions
 from ..services.query_ai import parse_query
 from ..services.search import base_name
 from ..deps import get_optional_user
 from ..services.my_meds import get_profile
-from ..services.safety import check_safety, add_disclaimer
-from ..services.synonym import find_symptom
+from ..services.safety import CAUTION_MESSAGES, check_safety, add_disclaimer, caution_targets
+from ..services.drug_type import (
+    DUR_TARGETS, TARGET_NAMES, TYPE_MEANINGS, find_drug_type, type_cautions, type_cautions_answer,
+)
+from ..services.synonym import common_symptoms, find_symptom
 
 router = APIRouter(prefix="/api", tags=["Chat"])
 
 
-# ③번 팀원의 안전 사전이 먼저 실행되며, 이 목록은 기존 코드의 긴급 신호 보조 검사만 유지합니다.
-EMERGENCY_WORDS = (
-    "의식이 없", "의식을 잃", "숨을 못 쉬", "숨이 안 쉬",
-    "입술이 파래", "피를 토", "가슴이 조이고 숨이 차", "숨이 막혀",
-)
+# 응급(119) 단어는 안전 사전(data/dict/symptom_keyword.csv) 한 곳에서만 관리해요 (11/12)
+# 예전에는 여기에 문장 8개가 따로 있었는데, 글자가 그대로 같아야만 잡아서 "가슴이 조이는 느낌이에요"를 놓쳤고
+# 관리자 사전 탭에도 안 보였어요. 사전에 없던 것(가슴+조이, 의식+잃, 입술+파래·파랗)을 사전으로 옮겼어요
 
 # 생성된 답변의 기계적 1차 검사: 의료적 정확성을 보증하지 않습니다.
 
@@ -61,10 +62,37 @@ PERSONAL_INFO = re.compile(
 )
 # 허락을 묻는 말은 개인 질문 그대로 ("이 약 먹어도 돼요?")
 PERMISSION_ASK = re.compile(r"먹어도|복용해도|먹여도|괜찮")
+# 먹기 전에 묻는 말과 이미 먹은 말: AI의 '위험 상황'을 그대로 쓸지 정할 때 봐요 (11/12)
+ASK_BEFORE_TAKING = re.compile(r"(?:먹어|먹여|복용해|드셔|발라|써|사용해)\s*도\s*(?:돼|되|괜찮|될)")
+ALREADY_TAKEN = re.compile(r"먹었|먹은|먹여버|먹였|삼켰|마셨|복용했|복용한|드셨|과다|많이")
 
 REDIRECT_DRUG_LIMIT = 5
 REDIRECT_LIST_NOTE = "효능에 이 증상이 적힌 약의 일부예요. 순서는 추천이 아니에요."
 REDIRECT_SEARCH_NOTE = "약 찾기에서 증상이나 약 이름으로 약 정보를 찾아볼 수 있어요."
+INGREDIENT_PICK_LIMIT = 10
+GUIDE_ANSWER = (
+    "약에 대해 궁금한 점을 물어봐 주세요. '타이레놀 하루에 몇 번 먹어요?'처럼 약 이름과 함께 물으면 "
+    "식약처 공식 자료로 답해 드려요. '머리가 지끈거려요'처럼 증상을 말하면 그 증상에 쓰는 약을 찾아 드리고, "
+    "가까운 약국은 위의 [약국] 메뉴에서 찾을 수 있어요."
+)
+# 약 목록을 보여 줘도 되는 증상: 증상 사전의 흔한 증상 + 감기류 (11/12)
+# 그 밖의 증상(흉통·호흡곤란 등)은 약보다 진료가 먼저일 수 있어서 목록 없이 예전처럼 되물어요
+# ("가슴이 조이는 느낌이에요"가 '흉통' 약 목록으로 나가던 것을 시험에서 발견)
+LISTABLE_SYMPTOMS_EXTRA = {"감기", "코감기", "목감기", "재채기", "비염"}
+# 어느 약인지 되묻는 문구 (예전에는 같은 뜻의 문구 4가지가 섞여 나갔어요)
+PICK_MESSAGE = "같은 이름의 약이 여러 개예요. 어느 약인지 골라 주세요."
+NOT_FOUND_MESSAGE = "질문에서 정확한 의약품을 찾지 못했어요. 약 이름을 확인하거나 검색에서 제품을 선택해 주세요."
+WHICH_MESSAGE = "어떤 약에 대한 질문인지 확인이 필요해요. 정확한 제품명을 알려주시거나 제품을 선택해 주세요."
+COMPARE_WORDS = re.compile(r"함께|같이|동시|병용|비교|차이")
+# 담긴 약을 가리키는 말: "이 약", "그 약", "이거" … ("두통이 약간"·"이 약국"은 아니에요)
+DRUG_REFERENCE = re.compile(r"(?:^|\s)(?:이|그|저|요)\s*약(?!간|국|사)|이거|그거|저거|이것|그것|저것|이\s*제품|그\s*제품")
+# AI가 증상 칸에 넣기도 하는 주의 대상 말. 증상이 아니에요 (주의 대상 사전은 '임신했'처럼 문장 모양이라 낱말 하나는 못 잡아요)
+NOT_SYMPTOM_WORDS = {"임신", "임부", "임산부", "수유", "모유", "출산", "노인", "고령", "소아", "어린이", "아기", "유아"}
+# 위 목록 밖의 증상을 약 이름 없이 말하면 (11/12 실제 대화: 타이레놀이 담긴 채 "계단 오르면 숨이 차요" → 타이레놀 복용법)
+SYMPTOM_CARE_ANSWER = (
+    "'{symptom}'은(는) 약보다 진료가 먼저일 수 있는 증상이에요. 증상이 계속되거나 심해지면 병원 진료를 받으세요. "
+    "숨쉬기가 많이 힘들거나 가슴이 아프면 바로 119에 연락하세요."
+)
 
 
 class ChatTurn(BaseModel):
@@ -105,6 +133,40 @@ def _mentions(item_name: str | None, question: str) -> bool:
     return bool(name) and name in re.sub(r"\s+", "", question).lower()
 
 
+# 인사만 한 말 (앞 대화·담긴 약과 상관없이 쓰는 법 안내). 문장 전체가 인사일 때만 ("안녕하세요 타이레놀 몇 번?"은 아님)
+GREETING = re.compile(
+    r"\s*(?:고마워요?|고맙습니다|감사(?:합니다|해요)?|안녕(?:하세요)?|반가워요?|반갑습니다|수고(?:하세요|하셨습니다)?|"
+    r"ㄳ|ㄱㅅ|thanks?|thank\s*you|hi|hello)\s*[.!~^ㅎㅋ]*\s*",
+    re.IGNORECASE,
+)
+
+
+def _drug_cautions_answer(item_name: str, item_seq: str, targets: list[str], from_before: bool) -> str | None:
+    """약 하나의 식약처 DUR 임부·소아·노인 자료로 답을 써요 (AI 안 부름, 내 약 프로필 주의사항과 같은 자료)
+    조회에 실패하면 None (원래 흐름으로)"""
+    name = base_name(item_name)
+    lines = []
+    if from_before:
+        lines += [f"앞에서 말씀하신 '{', '.join(TARGET_NAMES[t] for t in targets)}'을(를) 기준으로, "
+                  f"용량보다 먼저 {name}의 식약처 DUR 자료를 확인했어요.", ""]
+    for target in targets:
+        found = profile_cautions(target, [item_seq]).get(item_seq)
+        if found is None:
+            return None
+        label = TARGET_NAMES[target]
+        if found:
+            for kind in dict.fromkeys(c["type"] for c in found):
+                ingredients = ", ".join(dict.fromkeys(c["ingredient"] for c in found if c["type"] == kind and c.get("ingredient")))
+                meaning = TYPE_MEANINGS.get(kind)
+                lines.append(f"[{label}] {name}에는 {kind}{f'({meaning})' if meaning else ''} 자료가 있어요"
+                             + (f": {ingredients}" if ingredients else "") + ".")
+            lines += [f"- {c['content']}" for c in found if c.get("content")]
+        else:
+            lines.append(f"[{label}] {name}은(는) 식약처 DUR {label} 자료에서 찾지 못했어요. 자료에 없다고 안전하다는 뜻은 아니에요.")
+        lines.append(CAUTION_MESSAGES[target])
+    return "\n".join(lines)
+
+
 def _ref(drug: dict) -> dict:
     return {"item_seq": str(drug["item_seq"]), "item_name": drug.get("item_name") or ""}
 
@@ -124,15 +186,15 @@ TOGETHER_ANSWERS = {
 }
 
 
-def _find_drugs_in_parts(question: str, seqs: list[str]) -> tuple[list[dict], list[str]]:
+def _find_drugs_in_parts(question: str, seqs: list[str]) -> tuple[list[dict], list[str], dict[str, list[dict]]]:
     """'A랑 B 같이 먹어도 돼요?'를 잇는 말로 나눠 조각마다 약을 찾아요 (조각마다 AI 한 번, 동시에).
-    (찾은 약 목록, 같은 이름 제품이 여럿이라 정하지 못한 이름 목록)"""
+    (찾은 약 목록, 같은 이름 제품이 여럿이라 정하지 못한 이름 목록, 그 이름마다 후보 제품)"""
     parts = [p.strip() for p in NAME_JOINERS.split(question) if len(p.strip()) >= 2][:3]
     if len(parts) < 2:
-        return [], []
+        return [], [], {}
     with ThreadPoolExecutor(max_workers=len(parts)) as pool:
         results = list(pool.map(_find_named_drug, parts))
-    found, unclear = [], []
+    found, unclear, choices = [], [], {}
     for result in results:
         if result.get("status") == "found" and (result.get("drug") or {}).get("item_seq"):
             found.append(_ref(result["drug"]))
@@ -143,7 +205,8 @@ def _find_drugs_in_parts(question: str, seqs: list[str]) -> tuple[list[dict], li
                 found.append(_ref(in_list[0]))
             elif result.get("name"):
                 unclear.append(result["name"])
-    return found, unclear
+                choices[result["name"]] = result.get("candidates") or []
+    return found, unclear, choices
 
 
 def _together_answer(level: str | None, count: int, unclear: list[str]) -> str:
@@ -170,15 +233,6 @@ def recent_history(history: list[ChatTurn]) -> str:
     )
 
 
-def has_emergency_signal(question: str) -> bool:
-    if any(word in question for word in EMERGENCY_WORDS):
-        return True
-    return bool(
-        re.search(r"호흡곤란|경련", question)
-        and re.search(r"지금|갑자기|발생|생겼|있어요|왔어|하고 있어|중이야|시작", question)
-    )
-
-
 def make_reply(
     answer: str,
     item_seq: str | None = None,
@@ -201,14 +255,19 @@ def make_reply(
         result["category"] = category
     return result
 
-def save_chat_log(question: str, result: dict, level: str, response_ms: int | None = None, check: dict | None = None):
+def save_chat_log(question: str, result: dict, level: str, response_ms: int | None = None,
+                  check: dict | None = None, meta: dict | None = None):
     """check: AI 답변 검증 기록 (chat_answer._answer_from_official_info가 채움). AI를 안 부른 답은 비어 있어요
-    막힌 초안은 사용자에게 보내지 않고 여기에만 남겨요. 질문처럼 개인정보 모양은 가리고, 90일 뒤 함께 지워요(privacy.py)"""
+    막힌 초안은 사용자에게 보내지 않고 여기에만 남겨요. 질문처럼 개인정보 모양은 가리고, 90일 뒤 함께 지워요(privacy.py)
+    meta: is_test(평가·시험 요청, X-Medi-Test 헤더), question_type(약확인처럼 답을 만든 쪽이 정한 종류)"""
     check = check or {}
+    meta = meta or {}
     blocked = level in ("block", "redirect") or result.get("risk") == "위험 상황"
 
     if blocked:
         question_type = "차단"
+    elif meta.get("question_type"):
+        question_type = meta["question_type"]   # 약확인: 어느 약인지 되물은 답 (ask_which_drug)
     elif result.get("category") == "상호작용":
         question_type = "함께먹기"
     elif result.get("item_seq"):
@@ -220,10 +279,10 @@ def save_chat_log(question: str, result: dict, level: str, response_ms: int | No
         db.execute(
             text("""
                 INSERT INTO chat_log
-                (question, answer, question_type, target_item_seq, blocked, block_reason, response_ms,
+                (question, answer, question_type, target_item_seq, item_name, is_test, blocked, block_reason, response_ms,
                  check_result, check_reason, retry_reason, rejected_draft, retry_ms)
                 VALUES
-                (:question, :answer, :question_type, :item_seq, :blocked, :block_reason, :response_ms,
+                (:question, :answer, :question_type, :item_seq, :item_name, :is_test, :blocked, :block_reason, :response_ms,
                  :check_result, :check_reason, :retry_reason, :rejected_draft, :retry_ms)
             """),
             {
@@ -231,6 +290,8 @@ def save_chat_log(question: str, result: dict, level: str, response_ms: int | No
                 "answer": result["answer"],
                 "question_type": question_type,
                 "item_seq": result.get("item_seq"),
+                "item_name": result.get("item_name"),   # 관리자 질문 기록 표의 '약' 칸
+                "is_test": bool(meta.get("is_test")),
                 "blocked": blocked,
                 "block_reason": level if blocked else None,
                 "response_ms": response_ms,   # 질문을 받은 때부터 답을 만들 때까지 (관리자 대시보드 H-4)
@@ -261,7 +322,11 @@ def redirect_drugs(question: str) -> list[dict]:
 
 
 @router.post("/ask")
-def ask(data: AskRequest, user: dict | None = Depends(get_optional_user)):
+def ask(
+    data: AskRequest,
+    user: dict | None = Depends(get_optional_user),
+    x_medi_test: str | None = Header(default=None),   # 평가 스크립트·시험 요청이 "1"을 붙여요 → 관리자 기록에서 빼요
+):
     started = time.monotonic()
     question = data.question.strip()
     if not question:
@@ -297,6 +362,8 @@ def ask(data: AskRequest, user: dict | None = Depends(get_optional_user)):
 
     # AI 답변 검증 기록: AI를 부를 때만 채워지고, 질문 기록에만 저장해요 (응답에는 넣지 않아요. 막힌 초안이 들어 있어서)
     answer_check: dict = {}
+    # 질문 기록에만 쓰는 정보 (응답에는 안 넣어요)
+    log_meta: dict = {"is_test": x_medi_test == "1"}
 
     def reply(*args, **kwargs):
         result = {**make_reply(*args, **kwargs), **extras}
@@ -311,9 +378,53 @@ def ask(data: AskRequest, user: dict | None = Depends(get_optional_user)):
             result["answer"] += "\n\n" + safety["message"]
 
         result["answer"] = add_disclaimer(result["answer"])
-        save_chat_log(question, result, level, round((time.monotonic() - started) * 1000), answer_check)
+        save_chat_log(question, result, level, round((time.monotonic() - started) * 1000), answer_check, log_meta)
         return result
-    
+
+    def ask_which_drug(answer: str):
+        """어느 약인지 되묻는 답. 질문 기록에 '약확인'으로 남겨요 (예전에는 '분류 못 함'으로 섞였어요)"""
+        log_meta["question_type"] = "약확인"
+        return reply(answer, risk=risk)
+
+    def _by_ingredient_or_symptom(question: str, parsed: dict, profile: str | None):
+        """성분 이름 → 그 성분이 든 제품 후보 버튼 / 증상 → 그 증상에 쓰는 약 목록. 둘 다 없으면 None
+        약을 골라 주지는 않아요. 목록은 효능에 그 말이 적힌 약의 일부이고, 추천 거절(redirect)과 같은 안내를 달아요"""
+        ingredient = (parsed.get("ingredient") or "").strip()
+        if ingredient:
+            try:
+                _, items, _, _ = search_by_ingredient(ingredient, size=INGREDIENT_PICK_LIMIT)
+            except httpx.HTTPError:
+                items = []
+            if items:
+                extras["candidates"] = [_ref(c) for c in items]
+                return ask_which_drug(f"{ingredient} 성분이 든 약이 여러 개예요. 어느 약인지 골라 주세요.")
+
+        symptom = find_symptom(question) or (parsed.get("symptom") or "").strip()
+        if not symptom or symptom not in common_symptoms() | LISTABLE_SYMPTOMS_EXTRA:
+            return None
+        log_meta["question_type"] = "증상"
+        # 임부·소아·노인처럼 주의 대상이면 목록 없이 상담 안내만 (추천 거절과 같은 규칙)
+        if caution_targets(question, profile):
+            result = reply(
+                f"'{symptom}'에 쓰는 약은 여러 가지인데, 주의가 필요한 분이라 약을 목록으로 보여 드리지 않아요. "
+                "드시려는 약 이름을 알려 주시거나, 약사와 먼저 상담해 주세요.",
+                source="안내", risk=risk,
+            )
+            result["items"], result["items_note"] = [], REDIRECT_SEARCH_NOTE
+            return result
+        try:
+            _, items = search_by_efcy(symptom, size=REDIRECT_DRUG_LIMIT)
+        except httpx.HTTPError:
+            items = []
+        result = reply(
+            f"'{symptom}'에 쓰는 약을 찾아봤어요. 약 이름을 알려 주시면 그 약의 공식 정보로 답할게요. "
+            "아래 약을 누르면 자세한 정보를 볼 수 있어요.",
+            source=SOURCE, risk=risk,
+        )
+        result["items"] = [{"item_seq": i["item_seq"], "item_name": i["item_name"], "entp_name": i["entp_name"]} for i in items]
+        result["items_note"] = REDIRECT_LIST_NOTE if items else REDIRECT_SEARCH_NOTE
+        return result
+
     def emergency_reply(answer: str, source: str | None = None):
         result = {**make_reply(
             answer,
@@ -322,7 +433,7 @@ def ask(data: AskRequest, user: dict | None = Depends(get_optional_user)):
         ), **extras}
 
         try:
-            save_chat_log(question, result, "block", round((time.monotonic() - started) * 1000))
+            save_chat_log(question, result, "block", round((time.monotonic() - started) * 1000), meta=log_meta)
         except Exception:
             logging.exception("응급 질문 기록 저장 실패")
 
@@ -345,11 +456,6 @@ def ask(data: AskRequest, user: dict | None = Depends(get_optional_user)):
         result["items"] = [] if safety["matched"][1:] else redirect_drugs(question)
         result["items_note"] = REDIRECT_LIST_NOTE if result["items"] else REDIRECT_SEARCH_NOTE
         return result
-
-    if has_emergency_signal(question):
-        return emergency_reply(
-            "응급 상황이 의심됩니다. 즉시 119에 연락하거나 응급 진료를 받으세요.",
-        )
 
         # 현재 선택된 약의 정보를 확인해 약 변경 판단에 활용
     selected_drug = None
@@ -392,6 +498,11 @@ def ask(data: AskRequest, user: dict | None = Depends(get_optional_user)):
         )
         named = named_future.result()
     risk, category = analysis["risk"], analysis["category"]
+    # AI가 '임신 중인데 타이레놀 먹어도 돼?'를 위험 상황으로 보고 119를 안내했어요 (11/12, 같은 질문 두 번 모두)
+    # 앞으로 먹어도 되는지 묻기만 하고 이미 먹은 이야기가 없으면 개인 복용 질문으로 봐요
+    # 응급 표현·과다복용은 위의 안전 사전(check_safety)이 먼저 막아요
+    if risk == "위험 상황" and ASK_BEFORE_TAKING.search(question) and not ALREADY_TAKEN.search(question):
+        risk = analysis["risk"] = "개인 복용 질문"
     if risk == "위험 상황":
         return emergency_reply(
             "과다복용 또는 응급 상황이 의심되면 증상을 기다리지 말고 즉시 119나 응급의료기관에 연락하세요. "
@@ -436,137 +547,103 @@ def ask(data: AskRequest, user: dict | None = Depends(get_optional_user)):
         risk = analysis["risk"] = "일반 질문"
         analysis["action"], analysis["missing"] = "explain", "none"
 
-    # 약 검색/선택 API는 기존 계약 유지; 선택된 약이 있어야 개인별 공식 정보 설명 가능.
-    if data.drug_name and not data.item_seq and not drugs:
-        try:
-            total, items = search_merged(data.drug_name)
-        except httpx.HTTPError as exc:
-            raise HTTPException(status_code=503, detail="약 정보 서버가 응답하지 않아요.") from exc
-        
-        result = reply(
-            "검색된 약 중 정확한 제품을 선택해 주세요.",
-            risk=risk,
-        )
-        result["total"] = total
-        result["items"] = items
+    # ── 약 정하기 (11/12 구조 정리) ───────────────────────────────────────────
+    # 이 질문이 어느 약 이야기인지 decide_drug 한 곳에서 정해요. 순서:
+    #   ① 질문에 약 이름이 있으면 그 약 (코드가 찾음)
+    #   ② 이름이 없으면 먼저 "담긴 약 이야기인가?"를 봐요. "이 약"·"이거" 같은 말이 없으면 담긴 약에 붙이지 않아요
+    #      진료가 먼저인 증상 → 진료 안내 / 약 종류 + 임부·소아·노인 → DUR 자료 / 인사·약국 → 쓰는 법 안내
+    #      담긴 약이 없으면: 성분 → 제품 버튼, 흔한 증상 → 약 목록
+    #   ③ 그래도 모르면 AI 판단(keep·switch)을 마지막에 써요
+    #   ④ 끝까지 못 정하면 "어느 약이에요?" (후보가 있으면 버튼과 함께)
+    # 예전에는 네 방식(옛 drug_name·코드·AI keep/switch·AI 다시 검색)이 차례로 섞여, 담긴 약이 있으면
+    # 임신·약국 질문까지 모두 그 약에 붙었어요 (11/12 실제 대화)
+    def pick_reply(message: str, candidates: list[dict]):
+        extras["candidates"] = [_ref(c) for c in candidates]
+        result = ask_which_drug(message)
+        result["total"] = len(candidates)   # 옛 화면용 목록 (계약 7장 5단계에서 지움)
+        result["items"] = candidates
         return result
 
-    
-    # 코드가 질문에서 찾은 약을 AI의 keep/switch보다 먼저 써요 (API 계약 2-3)
-    target_item_seq = None
-    named_status = named.get("status")
-    if named_status == "found" and (named.get("drug") or {}).get("item_seq"):
-        target_item_seq = str(named["drug"]["item_seq"])
-    elif named_status == "ambiguous":
-        candidates = named.get("candidates") or []
-        # 후보 중에 이 대화의 약이 있으면 그 약 (지금 약이 먼저): ● 타이레놀정500 + "타이레놀 하루 몇 번?"
-        in_list = [c for c in candidates if str(c.get("item_seq")) in seqs]
-        pick = next((c for c in in_list if str(c["item_seq"]) == current_seq), in_list[0] if in_list else None)
-        if pick:
-            target_item_seq = str(pick["item_seq"])
+    def decide_drug():
+        """(바로 보낼 답, None) 또는 (None, 답할 약의 품목번호)"""
+        named_status = named.get("status")
+        parsed = named.get("parsed") or {}
+        drug_action = analysis["drug_action"]
+        new_drug_name = analysis.get("new_drug_name")
+
+        # 인사만 했으면 앞 대화·담긴 약과 상관없이 쓰는 법 안내 (11/12 실제 대화: 나이를 물은 뒤 "고마워요" → 또 나이를 물음)
+        if GREETING.fullmatch(question):
+            return reply(GUIDE_ANSWER, source="안내", risk=risk), None
+
+        # ① 질문에 약 이름
+        if named_status == "found" and (named.get("drug") or {}).get("item_seq"):
+            target = str(named["drug"]["item_seq"])
+            # 함께·비교 질문인데 지금 약도 질문에 적었으면 지금 약을 유지하고, 찾은 약은 담기만 해요 (#94)
+            if (current_seq and target != current_seq and COMPARE_WORDS.search(question)
+                    and _mentions(selected_item_name, question)):
+                if target not in seqs:
+                    extras["add_drugs"] = [_ref(named["drug"])]
+                target = current_seq
+            return None, target
+        if named_status == "ambiguous":
+            candidates = named.get("candidates") or []
+            # 후보 중에 이 대화의 약이 있으면 그 약 (지금 약이 먼저): ● 타이레놀정500 + "타이레놀 하루 몇 번?"
+            in_list = [c for c in candidates if str(c.get("item_seq")) in seqs]
+            pick = next((c for c in in_list if str(c["item_seq"]) == current_seq), in_list[0] if in_list else None)
+            if pick:
+                return None, str(pick["item_seq"])
+            return pick_reply(PICK_MESSAGE, candidates), None
+        if named.get("name"):
+            # 이름은 적었는데 못 찾음. 담긴 약도 없으면 바로 안내, 있으면 ③에서 AI 판단으로
+            if not current_seq:
+                return ask_which_drug(NOT_FOUND_MESSAGE), None
         else:
-            extras["candidates"] = [_ref(c) for c in candidates]
-            result = reply("같은 이름의 약이 여러 개예요. 어느 약인지 골라 주세요.", risk=risk)
-            # 옛 화면용 목록 (계약 7장 5단계에서 지움)
-            result["total"] = len(candidates)
-            result["items"] = candidates
-            result["items_note"] = "같은 이름으로 여러 제품이 검색됐어요. 아래 목록에서 정확한 제품을 확인해 주세요."
-            return result
-    elif named_status == "none" and named.get("name") and not current_seq:
-        pass  # 아래에서 안내 (elif 줄이 길어서 나눔)
+            # ② 약 이름이 없음
+            symptom = find_symptom(question) or (parsed.get("symptom") or "").strip()
+            # AI가 '임신'·'수유' 같은 주의 대상을 증상 칸에 넣기도 해요. 그건 증상이 아니라 아래 약 종류·개인 질문으로 (11/12)
+            if symptom and (symptom in NOT_SYMPTOM_WORDS or caution_targets(symptom)):
+                symptom = ""
+            if symptom and symptom not in common_symptoms() | LISTABLE_SYMPTOMS_EXTRA:
+                # "이 약 먹고 숨이 차요"처럼 담긴 약을 가리켜도 진료 안내가 먼저예요
+                log_meta["question_type"] = "증상"
+                return reply(SYMPTOM_CARE_ANSWER.format(symptom=symptom), source="안내", risk=risk), None
+            if not (current_seq and DRUG_REFERENCE.search(question)):
+                drug_type = find_drug_type(question)
+                targets = [t for t in caution_targets(question, profile) if t in DUR_TARGETS] if drug_type else []
+                if targets:
+                    log_meta["question_type"] = "약확인"
+                    return reply(
+                        type_cautions_answer(type_cautions(drug_type, targets)),
+                        source="식품의약품안전처 DUR", risk=risk,
+                    ), None
+                if category == "기타" and not new_drug_name:
+                    return reply(GUIDE_ANSWER, source="안내", risk=risk), None
+                if not current_seq and not (drug_action == "switch" and new_drug_name):
+                    found = _by_ingredient_or_symptom(question, parsed, profile)
+                    if found:
+                        return found, None
 
-    # 함께·같이·비교 질문인데 지금 약도 질문에 적었으면, 다른 약 하나로 바꾸지 않아요 (#94 규칙)
-    # 찾은 약은 목록에 담기만 해요 (함께 먹기 판정은 8번 작업에서 DUR로)
-    if (
-        target_item_seq and current_seq and target_item_seq != current_seq
-        and re.search(r"함께|같이|동시|병용|비교|차이", question)
-        and _mentions(selected_item_name, question)
-    ):
-        if target_item_seq not in seqs:
-            extras["add_drugs"] = [_ref(named.get("drug") or {"item_seq": target_item_seq})]
-        target_item_seq = current_seq
+        # ③ AI 판단: 지금 약 그대로(keep) 또는 AI가 찾은 다른 약 이름(switch)
+        if drug_action == "keep" and current_seq:
+            return None, current_seq
+        if drug_action == "switch" and new_drug_name:
+            try:
+                search_result = find_chat_drug(new_drug_name)
+            except httpx.HTTPError as exc:
+                raise HTTPException(status_code=503, detail="약 정보 서버가 응답하지 않아요.") from exc
+            status = search_result.get("status") if isinstance(search_result, dict) else None
+            if status == "found" and (search_result.get("drug") or {}).get("item_seq"):
+                return None, str(search_result["drug"]["item_seq"])
+            if status == "ambiguous":
+                return pick_reply(PICK_MESSAGE, search_result.get("candidates") or []), None
+            return ask_which_drug(NOT_FOUND_MESSAGE), None
 
-    if named_status == "none" and named.get("name") and not current_seq:
-        # 약 이름을 적었는데 찾지 못했고, 대신 답할 지금 약도 없음
-        return reply(
-            "질문에서 정확한 의약품을 찾지 못했어요. 약 이름을 확인하거나 검색에서 제품을 선택해 주세요.",
-            risk=risk,
-        )
+        # ④ 못 정함
+        return ask_which_drug(WHICH_MESSAGE), None
 
-    # 코드가 못 찾았을 때만 AI의 약 유지·변경·확인 판단을 써요
-    drug_action = analysis["drug_action"]
-
-    if target_item_seq is None and (drug_action == "clarify" or (
-        drug_action == "keep" and not current_seq
-    )):
-        return reply(
-            "어떤 약에 대한 질문인지 확인이 필요해요. "
-            "정확한 제품명을 알려주시거나 제품을 선택해 주세요.",
-            risk=risk,
-        )
-
-    # 기존 약 유지 또는 새로운 약 검색
-    if target_item_seq is None and drug_action == "keep":
-        target_item_seq = current_seq
-
-    if not target_item_seq:
-        try:
-            search_result = find_chat_drug(
-                analysis["new_drug_name"]
-            )
-        except httpx.HTTPError as exc:
-            raise HTTPException(
-                status_code=503,
-                detail="약 정보 서버가 응답하지 않아요.",
-            ) from exc
-
-        if not isinstance(search_result, dict):
-            raise HTTPException(
-                status_code=503,
-                detail="약 검색 결과를 확인할 수 없어요.",
-            )
-
-        status = search_result.get("status")
-
-        if status == "found":
-            found_drug = search_result.get("drug") or {}
-            found_item_seq = found_drug.get("item_seq")
-
-            if not found_item_seq:
-                raise HTTPException(
-                    status_code=503,
-                    detail="검색된 약의 품목번호를 확인할 수 없어요.",
-                )
-
-            target_item_seq = str(found_item_seq)
-
-        elif status == "ambiguous":
-            items = search_result.get("candidates") or []
-            extras["candidates"] = [_ref(c) for c in items]
-            result = reply(
-                "검색된 약 중 정확한 제품을 선택해 주세요.",
-                risk=risk,
-            )
-            result["total"] = len(items)
-            result["items"] = items
-            result["items_note"] = (
-                "검색된 제품이 1개예요. 아래 제품이 맞는지 확인해 주세요."
-                if len(items) == 1
-                else "같은 이름으로 여러 제품이 검색됐어요. 아래 목록에서 정확한 제품을 확인해 주세요."
-            )
-            return result
-
-        elif status == "none":
-            return reply(
-                "질문에서 정확한 의약품을 찾지 못했어요. 약 이름을 확인하거나 검색에서 제품을 선택해 주세요.",
-                risk=risk,
-            )
-
-        else:
-            raise HTTPException(
-                status_code=503,
-                detail="약 검색 상태를 확인할 수 없어요.",
-            )
+    early, target_item_seq = decide_drug()
+    if early is not None:
+        return early
 
     # 최종 선택된 약의 공식 정보 확인
     if (
@@ -617,14 +694,23 @@ def ask(data: AskRequest, user: dict | None = Depends(get_optional_user)):
         pool.setdefault(item_seq, item_name)
         for added in extras["add_drugs"]:
             pool.setdefault(added["item_seq"], added["item_name"])
-        unclear = []
+        unclear, choices = [], {}
         if NAME_JOINERS.search(question):
-            found, unclear = _find_drugs_in_parts(question, seqs)
+            found, unclear, choices = _find_drugs_in_parts(question, seqs)
             for ref in found:
                 if ref["item_seq"] not in pool and len(pool) < MAX_TOGETHER:
                     pool[ref["item_seq"]] = ref["item_name"]
                     if ref["item_seq"] not in seqs:
                         extras["add_drugs"] = extras["add_drugs"] + [ref]
+        # 짝이 안 되는데 질문에 적은 다른 약이 제품이 여럿이라 못 정했으면, "약을 하나 더 담아 주세요" 대신 그 약을 고르게 해요 (11/12)
+        # 예: 타이레놀정500을 담고 "타이레놀이랑 판콜에이 같이 먹어도 돼?" → 판콜에이 제품 버튼 → 고르면 두 약으로 다시 물어 DUR 판정
+        # 대화에 다른 약이 담겨 있어 짝이 채워져도 마찬가지예요 (11/12 실제 대화: 아스피린이 담긴 채 물어서
+        # 경동아스피린+타이레놀만 판정하고 "성분 겹침 없음" → 정작 물은 판콜에이(아세트아미노펜 겹침)는 빠짐)
+        pick_name = next((name for name in unclear if choices.get(name)), None)
+        if pick_name:
+            extras["candidates"] = [_ref(c) for c in choices[pick_name]]
+            extras["switched"] = False
+            return ask_which_drug(f"'{pick_name}'은(는) 같은 이름의 제품이 여러 개예요. 함께 먹을 약을 골라 주세요.")
         if len(pool) >= 2:
             try:
                 # 내 약 점검과 같은 규칙: 소아 프로필이면 성인 최대 용량 문장을 빼요
@@ -642,7 +728,26 @@ def ask(data: AskRequest, user: dict | None = Depends(get_optional_user)):
                 item_seq, item_name, "식품의약품안전처 DUR", risk, "상호작용",
             )
 
-    if risk == "개인 복용 질문" and analysis["action"] == "clarify":
+    # 개인 복용 질문에 임부·소아·노인이 나오면 (지금 질문·앞 대화·프로필), 그 약의 식약처 DUR 자료로 답해요 (11/12)
+    # 예전: "이 약 임신했는데 먹어도 돼?" → 나이를 되묻고 "확정하기 어려워요"만, 판콜에이의 임부 금기는 말하지 않았어요.
+    #       앞 대화에 '임신'이 있으면 "이거 하루에 몇 번?"도 이유 없이 "판단하기 어려워요"였어요
+    if risk == "개인 복용 질문":
+        now_targets = caution_targets(question)
+        before_targets = caution_targets(" ".join(user_utterances[1:]))
+        targets = [t for t in dict.fromkeys(now_targets + before_targets + [profile]) if t in DUR_TARGETS]
+        if targets:
+            answer = _drug_cautions_answer(item_name, item_seq, targets, from_before=not any(t in DUR_TARGETS for t in now_targets))
+            if answer:
+                # 안전 검사가 끝에 같은 상담 문장을 붙이면 (질문에 '임신' 등이 있을 때) 여기서는 빼요
+                warned = (safety.get("message") or "") if level == "warn" else ""
+                answer = "\n".join(line for line in answer.split("\n") if not (line and line in warned))
+                return reply(answer, item_seq, item_name, "식품의약품안전처 DUR", risk, category)
+
+    # 임신·수유라고 했으면 나이를 되묻지 않아요 (성인이에요)
+    pregnant_or_nursing = bool({"임부", "수유"} & set(caution_targets(" ".join(user_utterances))))
+    if risk == "개인 복용 질문" and analysis["action"] == "clarify" and not (
+        analysis["missing"] == "age" and pregnant_or_nursing
+    ):
         return reply(
             FOLLOWUPS[analysis["missing"]], item_seq, item_name, "대화 안내", risk,
             category if category != "기타" else None,

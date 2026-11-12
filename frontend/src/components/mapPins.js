@@ -6,12 +6,12 @@ export function pinSize(selected) {
 }
 
 export function pinHtml(n, open, selected = false) {
-  const bg = selected ? '#2563EB' : open ? '#111827' : '#6B7280'
+  const bg = selected ? '#3F5F8A' : open ? '#1F2225' : '#6E737A'   // index.css의 --primary, --text와 같은 색
   const size = pinSize(selected)
   return `<span style="display:flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;border-radius:50%;background:${bg};color:#fff;font:700 ${selected ? 16 : 14}px/1 'Noto Sans KR',sans-serif;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.35);cursor:pointer">${n}</span>`
 }
 
 // 내 위치 (시안: 파란 점과 옅은 테두리)
-export const ME_HTML = '<span style="display:block;width:20px;height:20px;border-radius:10px;background:#2563EB;border:4px solid #fff;box-shadow:0 0 0 8px rgba(37,99,235,.18)"></span>'
+export const ME_HTML = '<span style="display:block;width:20px;height:20px;border-radius:10px;background:#3F5F8A;border:4px solid #fff;box-shadow:0 0 0 8px rgba(63,95,138,.18)"></span>'
 
 export const SEOUL = [37.5665, 126.978]   // 약국이 없을 때 처음 보여 줄 곳

@@ -132,6 +132,8 @@ kubectl -n medi-info logs job/purge-now
 |---|---|
 | 상태 보기 | 워크로드별 준비 수·**버전(커밋번호)**, 파드 상태·재시작 횟수·**지난번 종료 이유**(메모리 한도 초과 등), 최근 사전 적재 3번, CronJob 마지막 실행 |
 | 자원 사용량 | 노드(이 PC의 WSL 전체, Ollama 포함)와 파드별 CPU·메모리를 한도 대비 막대로. metrics-server 값이라 15초마다 새로 봐요 |
+| 요청 지표 | backend·web의 최근 1분 요청 수·초당·4xx·5xx(5분 합)·응답 95% 칸. ops가 Traefik `:9100/metrics`를 15초마다 읽어 5분만 메모리에 둬요(Prometheus 없이, automachine과 같은 방식). 파드끼리 부르는 요청은 안 세요 |
+| 배포 이력 | Deployment마다 배포 상태(완료·진행 중·멈춤)와 최근 5개 버전(커밋 번호). 보기만 하고, 되돌리기는 `kubectl rollout undo` |
 | 다시 시작 | `backend`·`web`만 (`kubectl rollout restart`와 같음, 하나씩 갈아 끼워서 끊기지 않아요). db·ops는 안 돼요 |
 | 사전 다시 적재 | 멈춰 둔 `dict-load` CronJob을 복사해 Job을 만들어요. CSV는 **마지막 배포 때** 넣은 것이라, 새 CSV는 머지 뒤 `deploy.sh` |
 | 백업과 저장 공간 | 백업 파일 목록, 마지막 백업 작업 결과, **지금 백업** 버튼, DB 크기 / 저장 공간(5Gi), 큰 표 5개. 36시간 넘게 새 백업이 없으면 "오래됨" |
@@ -201,6 +203,20 @@ ollama ps                                      # CONTEXT 16384, PROCESSOR 100% G
 
 - 값을 바꾸면 세 곳을 같이 바꿔요: Ollama 서버(`OLLAMA_CONTEXT_LENGTH`), `k8s/config.yaml`, 기본값(`backend/app/config.py`).
 - GPU가 작은 팀원 PC(compose)는 `.env`에 `OLLAMA_NUM_CTX=8192`, 그 PC의 Ollama에도 `OLLAMA_CONTEXT_LENGTH=8192`.
+
+### Ollama 프롬프트 캐시 한도 (`LLAMA_ARG_CACHE_RAM=512`)
+
+Ollama 안의 llama-server는 지난 질문의 계산 결과를 **WSL 메모리**에 쌓아 두는 프롬프트 캐시가 있어요. 기본 한도가 **8GB**라,
+약바로처럼 공식 자료가 들어간 긴 프롬프트가 계속 바뀌면 끝까지 차요(`OLLAMA_KEEP_ALIVE=-1`이라 모델이 안 내려가서 계속 쌓임).
+
+- 11/11: 모델은 100% GPU인데 러너가 WSL 메모리 4.7GB + 스왑 3.6GB를 잡아서, WSL 남은 메모리가 0.5GB → k3s API 멈춤·파드 재시작·배포 중단.
+- 한도를 512MB로: 질문 40번 뒤에도 러너 약 0.7GB, 답 시간 평균 6초로 그대로.
+- Ollama 설정(`OLLAMA_*`)에는 이 항목이 없어서, llama-server가 직접 읽는 환경 변수로 줘요. automachine도 같은 Ollama라 같이 좋아져요.
+
+```bash
+sudo bash -c 'f=/etc/systemd/system/ollama.service.d/override.conf; sed -i "/LLAMA_ARG_CACHE_RAM/d" $f; echo "Environment=\"LLAMA_ARG_CACHE_RAM=512\"" >> $f; systemctl daemon-reload; systemctl restart ollama'
+journalctl -u ollama --since -10min | grep "prompt cache"   # size limit: 512 MiB 인지
+```
 
 ## 상태 검사 (probe)
 

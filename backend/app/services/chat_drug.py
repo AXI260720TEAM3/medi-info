@@ -33,7 +33,7 @@ def find_chat_drug(question: str) -> dict:
     name = (result.get("name") or "").strip()
 
     if not name:
-        return {"status": "none"}
+        return result   # status none + parsed(성분·증상): AI를 다시 부르지 않고 넘겨요
 
     _, items = search_merged(name, page=1, size=20)
 

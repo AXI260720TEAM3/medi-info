@@ -83,24 +83,27 @@ function MedHistoryActions({ history, onSaved }) {
 
   return (
     <div>
-      <button type="button" onClick={openEdit}>
-        수정
-      </button>
-
-      {!history.stopped_at && (
-        <button type="button" onClick={openStop}>
-          복용 중단
+      <div className="med-actions">
+        <button type="button" className="btn btn-secondary btn-small" onClick={openEdit}>
+          수정
         </button>
-      )}
+
+        {!history.stopped_at && (
+          <button type="button" className="btn btn-secondary btn-small" onClick={openStop}>
+            복용 중단
+          </button>
+        )}
+      </div>
 
       {mode && (
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} className="med-inline-form">
           {mode === 'edit' ? (
             <>
               <label>
                 복용 시작일
                 <input
                   type="date"
+                  className="input"
                   value={startDate}
                   onChange={e => setStartDate(e.target.value)}
                   required
@@ -111,6 +114,7 @@ function MedHistoryActions({ history, onSaved }) {
                 하루 복용 횟수 (선택)
                 <input
                   type="number"
+                  className="input"
                   min="1"
                   max="24"
                   value={times}
@@ -135,6 +139,7 @@ function MedHistoryActions({ history, onSaved }) {
               복용 중단일
               <input
                 type="date"
+                className="input"
                 min={history.start_date}
                 value={stopDate}
                 onChange={e => setStopDate(e.target.value)}
@@ -143,12 +148,13 @@ function MedHistoryActions({ history, onSaved }) {
             </label>
           )}
 
-          <button type="submit" disabled={saving}>
+          <button type="submit" className="btn btn-primary btn-small" disabled={saving}>
             {saving ? '저장 중...' : '저장'}
           </button>
 
           <button
             type="button"
+            className="btn btn-secondary btn-small"
             onClick={cancel}
             disabled={saving}
           >
@@ -157,7 +163,7 @@ function MedHistoryActions({ history, onSaved }) {
         </form>
       )}
 
-      {error && <p role="alert">{error}</p>}
+      {error && <p role="alert" className="form-error">{error}</p>}
     </div>
   )
 }

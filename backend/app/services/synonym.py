@@ -21,6 +21,10 @@ def find_symptom(question: str):
         return None
     return min(hits)[1]
 
+def common_symptoms() -> set[str]:
+    """증상 사전(일상어 → 공식)에 있는 공식 증상들. 일반의약품으로 흔히 다루는 증상이에요 (두통·인후통·콧물 …)"""
+    return {row["standard"] for row in _load_words()}
+
 def fix_drug_typo(name: str):
     with SessionLocal() as db:
         rows = db.execute(
