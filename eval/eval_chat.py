@@ -50,6 +50,17 @@ def find_drug(name):
     return {"item_seq": pick["item_seq"], "item_name": pick["item_name"]}
 
 
+def parse_history(text):
+    """history 칸: "user: 질문 || assistant: 답 || ..." → 화면이 보내는 앞 대화 모양 (11/12)
+    앞 대화가 있으면 AI 분석이 달라져요. 비워서 보내는 평가로는 실제 대화의 503을 못 잡았어요"""
+    turns = []
+    for part in (text or "").split("||"):
+        role, _, content = part.strip().partition(":")
+        if role.strip() in ("user", "assistant") and content.strip():
+            turns.append({"role": role.strip(), "content": content.strip()})
+    return turns
+
+
 def flow_of(res):
     """응답 모양으로 답의 종류를 정해요"""
     answer = res.get("answer", "")
@@ -70,7 +81,7 @@ def flow_of(res):
     if "약보다 진료가 먼저일 수 있는 증상" in answer:
         return "care"
     if res.get("source") == "식품의약품안전처 DUR":
-        return "type_caution"
+        return "drug_caution" if res.get("item_seq") else "type_caution"   # 약 하나의 DUR 자료 / 약 종류의 대표 성분 자료
     if res.get("items") and not res.get("item_seq"):
         return "symptom"
     if answer.startswith(OFFICIAL_TEXT):
@@ -88,7 +99,7 @@ with open(CSV_PATH, encoding="utf-8-sig") as f:
 drug_cache = {}
 passed, times, official = 0, [], 0
 for row in rows:
-    payload = {"question": row["question"], "history": []}
+    payload = {"question": row["question"], "history": parse_history(row.get("history"))}
     try:
         # drug_name: 대화에 담은 약. 여러 개는 ;로 나눠요 (화면처럼 마지막에 담은 약이 지금 약)
         names = [n.strip() for n in row["drug_name"].split(";") if n.strip()]

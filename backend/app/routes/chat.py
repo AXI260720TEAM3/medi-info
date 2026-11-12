@@ -32,13 +32,15 @@ from ..services.chat_drug import find_chat_drug, get_chat_drug_detail
 from ..services.drug_api import search_by_efcy
 from ..services.drug_search import search_by_ingredient, search_merged
 from ..services.privacy import mask_personal
-from ..services.dur_api import check_interaction, get_ingredients
+from ..services.dur_api import check_interaction, get_ingredients, profile_cautions
 from ..services.query_ai import parse_query
 from ..services.search import base_name
 from ..deps import get_optional_user
 from ..services.my_meds import get_profile
-from ..services.safety import check_safety, add_disclaimer, caution_targets
-from ..services.drug_type import DUR_TARGETS, find_drug_type, type_cautions, type_cautions_answer
+from ..services.safety import CAUTION_MESSAGES, check_safety, add_disclaimer, caution_targets
+from ..services.drug_type import (
+    DUR_TARGETS, TARGET_NAMES, TYPE_MEANINGS, find_drug_type, type_cautions, type_cautions_answer,
+)
 from ..services.synonym import common_symptoms, find_symptom
 
 router = APIRouter(prefix="/api", tags=["Chat"])
@@ -129,6 +131,40 @@ def _mentions(item_name: str | None, question: str) -> bool:
     """질문에 이 약 이름(괄호 앞)이 적혀 있나 (띄어쓰기·대소문자 무시)"""
     name = re.sub(r"\s+", "", base_name(item_name or "")).lower()
     return bool(name) and name in re.sub(r"\s+", "", question).lower()
+
+
+# 인사만 한 말 (앞 대화·담긴 약과 상관없이 쓰는 법 안내). 문장 전체가 인사일 때만 ("안녕하세요 타이레놀 몇 번?"은 아님)
+GREETING = re.compile(
+    r"\s*(?:고마워요?|고맙습니다|감사(?:합니다|해요)?|안녕(?:하세요)?|반가워요?|반갑습니다|수고(?:하세요|하셨습니다)?|"
+    r"ㄳ|ㄱㅅ|thanks?|thank\s*you|hi|hello)\s*[.!~^ㅎㅋ]*\s*",
+    re.IGNORECASE,
+)
+
+
+def _drug_cautions_answer(item_name: str, item_seq: str, targets: list[str], from_before: bool) -> str | None:
+    """약 하나의 식약처 DUR 임부·소아·노인 자료로 답을 써요 (AI 안 부름, 내 약 프로필 주의사항과 같은 자료)
+    조회에 실패하면 None (원래 흐름으로)"""
+    name = base_name(item_name)
+    lines = []
+    if from_before:
+        lines += [f"앞에서 말씀하신 '{', '.join(TARGET_NAMES[t] for t in targets)}'을(를) 기준으로, "
+                  f"용량보다 먼저 {name}의 식약처 DUR 자료를 확인했어요.", ""]
+    for target in targets:
+        found = profile_cautions(target, [item_seq]).get(item_seq)
+        if found is None:
+            return None
+        label = TARGET_NAMES[target]
+        if found:
+            for kind in dict.fromkeys(c["type"] for c in found):
+                ingredients = ", ".join(dict.fromkeys(c["ingredient"] for c in found if c["type"] == kind and c.get("ingredient")))
+                meaning = TYPE_MEANINGS.get(kind)
+                lines.append(f"[{label}] {name}에는 {kind}{f'({meaning})' if meaning else ''} 자료가 있어요"
+                             + (f": {ingredients}" if ingredients else "") + ".")
+            lines += [f"- {c['content']}" for c in found if c.get("content")]
+        else:
+            lines.append(f"[{label}] {name}은(는) 식약처 DUR {label} 자료에서 찾지 못했어요. 자료에 없다고 안전하다는 뜻은 아니에요.")
+        lines.append(CAUTION_MESSAGES[target])
+    return "\n".join(lines)
 
 
 def _ref(drug: dict) -> dict:
@@ -535,6 +571,10 @@ def ask(
         drug_action = analysis["drug_action"]
         new_drug_name = analysis.get("new_drug_name")
 
+        # 인사만 했으면 앞 대화·담긴 약과 상관없이 쓰는 법 안내 (11/12 실제 대화: 나이를 물은 뒤 "고마워요" → 또 나이를 물음)
+        if GREETING.fullmatch(question):
+            return reply(GUIDE_ANSWER, source="안내", risk=risk), None
+
         # ① 질문에 약 이름
         if named_status == "found" and (named.get("drug") or {}).get("item_seq"):
             target = str(named["drug"]["item_seq"])
@@ -688,7 +728,26 @@ def ask(
                 item_seq, item_name, "식품의약품안전처 DUR", risk, "상호작용",
             )
 
-    if risk == "개인 복용 질문" and analysis["action"] == "clarify":
+    # 개인 복용 질문에 임부·소아·노인이 나오면 (지금 질문·앞 대화·프로필), 그 약의 식약처 DUR 자료로 답해요 (11/12)
+    # 예전: "이 약 임신했는데 먹어도 돼?" → 나이를 되묻고 "확정하기 어려워요"만, 판콜에이의 임부 금기는 말하지 않았어요.
+    #       앞 대화에 '임신'이 있으면 "이거 하루에 몇 번?"도 이유 없이 "판단하기 어려워요"였어요
+    if risk == "개인 복용 질문":
+        now_targets = caution_targets(question)
+        before_targets = caution_targets(" ".join(user_utterances[1:]))
+        targets = [t for t in dict.fromkeys(now_targets + before_targets + [profile]) if t in DUR_TARGETS]
+        if targets:
+            answer = _drug_cautions_answer(item_name, item_seq, targets, from_before=not any(t in DUR_TARGETS for t in now_targets))
+            if answer:
+                # 안전 검사가 끝에 같은 상담 문장을 붙이면 (질문에 '임신' 등이 있을 때) 여기서는 빼요
+                warned = (safety.get("message") or "") if level == "warn" else ""
+                answer = "\n".join(line for line in answer.split("\n") if not (line and line in warned))
+                return reply(answer, item_seq, item_name, "식품의약품안전처 DUR", risk, category)
+
+    # 임신·수유라고 했으면 나이를 되묻지 않아요 (성인이에요)
+    pregnant_or_nursing = bool({"임부", "수유"} & set(caution_targets(" ".join(user_utterances))))
+    if risk == "개인 복용 질문" and analysis["action"] == "clarify" and not (
+        analysis["missing"] == "age" and pregnant_or_nursing
+    ):
         return reply(
             FOLLOWUPS[analysis["missing"]], item_seq, item_name, "대화 안내", risk,
             category if category != "기타" else None,
