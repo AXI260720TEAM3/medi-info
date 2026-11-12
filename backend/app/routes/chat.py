@@ -131,15 +131,15 @@ TOGETHER_ANSWERS = {
 }
 
 
-def _find_drugs_in_parts(question: str, seqs: list[str]) -> tuple[list[dict], list[str]]:
+def _find_drugs_in_parts(question: str, seqs: list[str]) -> tuple[list[dict], list[str], dict[str, list[dict]]]:
     """'A랑 B 같이 먹어도 돼요?'를 잇는 말로 나눠 조각마다 약을 찾아요 (조각마다 AI 한 번, 동시에).
-    (찾은 약 목록, 같은 이름 제품이 여럿이라 정하지 못한 이름 목록)"""
+    (찾은 약 목록, 같은 이름 제품이 여럿이라 정하지 못한 이름 목록, 그 이름마다 후보 제품)"""
     parts = [p.strip() for p in NAME_JOINERS.split(question) if len(p.strip()) >= 2][:3]
     if len(parts) < 2:
-        return [], []
+        return [], [], {}
     with ThreadPoolExecutor(max_workers=len(parts)) as pool:
         results = list(pool.map(_find_named_drug, parts))
-    found, unclear = [], []
+    found, unclear, choices = [], [], {}
     for result in results:
         if result.get("status") == "found" and (result.get("drug") or {}).get("item_seq"):
             found.append(_ref(result["drug"]))
@@ -150,7 +150,8 @@ def _find_drugs_in_parts(question: str, seqs: list[str]) -> tuple[list[dict], li
                 found.append(_ref(in_list[0]))
             elif result.get("name"):
                 unclear.append(result["name"])
-    return found, unclear
+                choices[result["name"]] = result.get("candidates") or []
+    return found, unclear, choices
 
 
 def _together_answer(level: str | None, count: int, unclear: list[str]) -> str:
@@ -677,14 +678,21 @@ def ask(
         pool.setdefault(item_seq, item_name)
         for added in extras["add_drugs"]:
             pool.setdefault(added["item_seq"], added["item_name"])
-        unclear = []
+        unclear, choices = [], {}
         if NAME_JOINERS.search(question):
-            found, unclear = _find_drugs_in_parts(question, seqs)
+            found, unclear, choices = _find_drugs_in_parts(question, seqs)
             for ref in found:
                 if ref["item_seq"] not in pool and len(pool) < MAX_TOGETHER:
                     pool[ref["item_seq"]] = ref["item_name"]
                     if ref["item_seq"] not in seqs:
                         extras["add_drugs"] = extras["add_drugs"] + [ref]
+        # 짝이 안 되는데 질문에 적은 다른 약이 제품이 여럿이라 못 정했으면, "약을 하나 더 담아 주세요" 대신 그 약을 고르게 해요 (11/12)
+        # 예: 타이레놀정500을 담고 "타이레놀이랑 판콜에이 같이 먹어도 돼?" → 판콜에이 제품 버튼 → 고르면 두 약으로 다시 물어 DUR 판정
+        pick_name = next((name for name in unclear if choices.get(name)), None)
+        if len(pool) < 2 and pick_name:
+            extras["candidates"] = [_ref(c) for c in choices[pick_name]]
+            extras["switched"] = False
+            return ask_which_drug(f"'{pick_name}'은(는) 같은 이름의 제품이 여러 개예요. 함께 먹을 약을 골라 주세요.")
         if len(pool) >= 2:
             try:
                 # 내 약 점검과 같은 규칙: 소아 프로필이면 성인 최대 용량 문장을 빼요
