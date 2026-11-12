@@ -21,6 +21,9 @@ CSV_PATH = "data/eval/chat_questions.csv"
 ASK_DRUG = ("검색된 약 중", "같은 이름의 약이", "질문에서 정확한 의약품을", "어떤 약에 대한 질문인지", "함께 먹을 약을 하나 더")
 FALLBACK = "공식 자료를 바탕으로 생성한 설명의 정확성을 확인할 수 없어"
 GUIDE = "약에 대해 궁금한 점을 물어봐 주세요"
+OFFICIAL_TEXT = "AI 설명은 정확한지 확인하지 못해서"   # AI 답이 막혀 원문을 보여 준 답 (chat_answer.py)
+# 기대와 달라도 통과로 치는 종류: 약 정보를 물었는데 AI 답 대신 원문이 나간 것도 쓸모 있는 답이에요 (따로 세어 보여 줘요)
+ALSO_OK = {"drug_info": {"official_text"}}
 
 
 def call(method, path, body=None):
@@ -65,6 +68,8 @@ def flow_of(res):
         return "type_caution"
     if res.get("items") and not res.get("item_seq"):
         return "symptom"
+    if answer.startswith(OFFICIAL_TEXT):
+        return "official_text"
     if FALLBACK in answer:
         return "fallback"
     if res.get("item_seq"):
@@ -76,7 +81,7 @@ with open(CSV_PATH, encoding="utf-8-sig") as f:
     rows = list(csv.DictReader(f))
 
 drug_cache = {}
-passed, times = 0, []
+passed, times, official = 0, [], 0
 for row in rows:
     payload = {"question": row["question"], "history": []}
     try:
@@ -98,13 +103,14 @@ for row in rows:
         continue
 
     got = flow_of(res)
-    ok = got == row["expected_flow"]
+    ok = got == row["expected_flow"] or got in ALSO_OK.get(row["expected_flow"], ())
+    official += got == "official_text"
     passed += ok
     times.append(elapsed)
     print(f"[{row['id']:>2}] {'통과' if ok else '실패'}  {elapsed:5.1f}초  기대 {row['expected_flow']:<12} 실제 {got:<12} {row['question']}")
     if not ok:
         print("       답:", res.get("answer", "")[:120].replace("\n", " "))
 
-print(f"\n통과 {passed}/{len(rows)}")
+print(f"\n통과 {passed}/{len(rows)}" + (f" (그중 AI 답 대신 원문 {official}개)" if official else ""))
 if times:
     print(f"응답 시간 평균 {sum(times) / len(times):.1f}초 · 가장 느림 {max(times):.1f}초")

@@ -53,6 +53,23 @@ DOSE_INTENT = re.compile(
 HAN_PATTERN = re.compile(r"[\u4e00-\u9fff]")
 
 
+# AI 답이 두 번 다 검증에 걸렸을 때 (11/12): 빈손("답변을 표시하지 않았어요") 대신 질문한 항목의 식약처 원문을 그대로 보여 줘요
+# 원문은 약 상세 화면에 이미 나오는 공식 자료라 지어낸 내용이 없어요. 개인 질문은 원문이 복용 허락처럼 읽힐 수 있어 예전 안내 그대로
+OFFICIAL_TEXT_LIMIT = 600
+OFFICIAL_TEXT_LEAD = "AI 설명은 정확한지 확인하지 못해서, 식약처 공식 자료의 원문을 그대로 보여 드려요."
+
+
+def _official_text(drug: dict, category: str) -> str | None:
+    """질문한 항목의 원문 (길면 앞부분만). 원문이 없으면 None"""
+    field = DRUG_FIELDS.get(category)
+    text = re.sub(r"[ \t]+", " ", str(drug.get(field) or "")).strip() if field else ""
+    if not text:
+        return None
+    if len(text) > OFFICIAL_TEXT_LIMIT:
+        text = text[:OFFICIAL_TEXT_LIMIT].rstrip() + " …(전체 내용은 약 상세 화면에서 볼 수 있어요)"
+    return f"{OFFICIAL_TEXT_LEAD}\n\n[{category}] {text}"
+
+
 def _evidence(drug: dict, categories: list[str]) -> str:
     return "\n".join(
         f"{name}: {drug.get(DRUG_FIELDS[name]) or '정보 없음'}"
@@ -314,7 +331,7 @@ def _answer_from_official_info(
             return rewritten
         logging.warning("AI 재생성 답변 검증 실패: %s", rewrite_reason)
         _note(check, check_result="fallback", retry_reason=rewrite_reason)
-        return (
+        return _official_text(drug, "복용방법") or (
             f"{drug['item_name']}의 공식 자료에서 질문하신 용법을 정확히 옮기지 못했어요. "
             "약 상세 화면의 '이렇게 먹어요'를 확인하시거나 약사에게 물어봐 주세요."
         )
@@ -365,7 +382,7 @@ def _answer_from_official_info(
             "개인별 복용 가능 여부를 판단하기 어려워요. "
             "복용 전에 의사 또는 약사와 상담해 주세요."
         )
-    return (
+    return _official_text(drug, category) or (
         "공식 자료를 바탕으로 생성한 설명의 정확성을 확인할 수 없어 "
         "답변을 표시하지 않았어요."
     )
