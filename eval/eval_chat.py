@@ -100,6 +100,8 @@ drug_cache = {}
 passed, times, official = 0, [], 0
 for row in rows:
     payload = {"question": row["question"], "history": parse_history(row.get("history"))}
+    if (row.get("who") or "").strip():   # 화면의 '먹는 사람' (없음·임부·수유·소아·노인)
+        payload["who"] = row["who"].strip()
     try:
         # drug_name: 대화에 담은 약. 여러 개는 ;로 나눠요 (화면처럼 마지막에 담은 약이 지금 약)
         names = [n.strip() for n in row["drug_name"].split(";") if n.strip()]

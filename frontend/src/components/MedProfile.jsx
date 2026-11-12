@@ -9,6 +9,7 @@ import TermNotes from './TermNotes'
 const OPTIONS = [
   { target: '없음', label: '선택 안 함' },
   { target: '임부', label: '임신' },
+  { target: '수유', label: '수유' },
   { target: '소아', label: '소아' },
   { target: '노인', label: '노인' },
 ]

@@ -24,7 +24,7 @@ class MedRequest(BaseModel):
 
 
 class ProfileRequest(BaseModel):
-    target: Literal["없음", "임부", "소아", "노인"]
+    target: Literal["없음", "임부", "수유", "소아", "노인"]   # 수유: AI 질문의 '먹는 사람'과 같게 (11/12)
 
 
 class ScanRequest(BaseModel):

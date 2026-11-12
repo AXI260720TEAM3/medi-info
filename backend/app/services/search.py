@@ -17,9 +17,17 @@ def name_variants(name):
         variants.append(first.group())
     return list(dict.fromkeys(variants))
 
+# 가리키는 말: AI가 "이 약 부작용은?"의 '이 약', "이거 부작용은?"의 '이거'를 약 이름으로 뽑아요 (11/12)
+# 그 이름으로 검색하면 엉뚱한 제품이 여러 개 걸려 "어느 약이에요?"가 나왔어요. 약 이름이 아닌 것으로 봐요
+REFERENCE_NAME = re.compile(r"(?:이|그|저|요)?\s*(?:약|거|것|제품)|이거|그거|저거|이것|그것|저것")
+
+
 def find_drug(question):
     parsed = parse_query(question)
     name = parsed["drug_name"]
+    if name and REFERENCE_NAME.fullmatch(name.strip()):
+        parsed = {**parsed, "drug_name": None}
+        name = None
     if not name:
         # 약 이름이 없어도 AI가 뽑은 성분·증상은 돌려줘요. AI 질문이 되묻기 전에 써요 (11/12, routes/chat.py)
         return {"status": "none", "parsed": parsed}

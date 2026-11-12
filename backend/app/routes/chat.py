@@ -115,6 +115,9 @@ class AskRequest(BaseModel):
     # E안 (11/10): 이 대화의 약과 지금 약(●). 목록의 주인은 화면이고, 서버는 저장하지 않아요
     drugs: list[DrugRef] = Field(default_factory=list, max_length=10)
     current_seq: str | None = None
+    # 먹는 사람 (11/12, 화면 위 '지금 답의 기준'). 화면이 보내면 앞 대화로 짐작하지 않고 이 값을 써요
+    # 없음 = 성인(해당 없음). 안 보내면(None) 예전처럼 로그인한 사람의 내 약 프로필
+    who: Literal["없음", "임부", "수유", "소아", "노인"] | None = None
 
 
 def _find_named_drug(question: str) -> dict:
@@ -145,6 +148,7 @@ GREETING = re.compile(
 # (11/12 시험: "지르텍 7살 아이" 다음 "우리 아버지가 80세인데 이 약 먹어도 돼?" → '어린이' 기준으로 답함)
 AGE_IN_TEXT = re.compile(r"(?<!\d)(\d{1,3})\s*(?:세|살)")
 ELDER_AGE = 65
+WHO_TARGETS = ("임부", "수유", "소아", "노인")   # 화면에서 고를 수 있는 먹는 사람
 NEW_SUBJECT = re.compile(r"아버지|어머니|아빠|엄마|할머니|할아버지|남편|아내|아들|딸|동생|친구|제가|저는|내가|나는")
 
 
@@ -183,16 +187,19 @@ def _label_sentences(drug: dict, target: str) -> list[str]:
     return found[:LABEL_SENTENCE_LIMIT]
 
 
-def _drug_cautions_answer(item_name: str, item_seq: str, targets: list[str], from_before: bool,
+def _drug_cautions_answer(item_name: str, item_seq: str, targets: list[str], basis: str | None,
                           drug: dict | None = None) -> str | None:
     """약 하나의 식약처 DUR 임부·소아·노인 자료 + 설명서 주의사항으로 답을 써요 (AI 안 부름)
     DUR 조회에 실패하면 None (원래 흐름으로)"""
     name = base_name(item_name)
     label_source = "허가정보 주의사항" if (drug or {}).get("has_easy") is False else "설명서(e약은요)"
     lines = []
-    if from_before:
-        lines += [f"앞에서 말씀하신 '{', '.join(TARGET_NAMES[t] for t in targets)}'을(를) 기준으로, "
-                  f"용량보다 먼저 {name}의 식약처 DUR 자료를 확인했어요.", ""]
+    # basis: 대상을 어디서 알았나. None = 지금 질문, "before" = 앞 대화, "who" = 화면의 먹는 사람(또는 프로필)
+    who_names = ", ".join(TARGET_NAMES[t] for t in targets)
+    if basis == "before":
+        lines += [f"앞에서 말씀하신 '{who_names}'을(를) 기준으로, 용량보다 먼저 {name}의 식약처 DUR 자료를 확인했어요.", ""]
+    elif basis == "who":
+        lines += [f"먹는 사람이 '{who_names}'(으)로 되어 있어서, 용량보다 먼저 {name}의 식약처 DUR 자료를 확인했어요.", ""]
     for target in targets:
         found = profile_cautions(target, [item_seq]).get(item_seq)
         if found is None:
@@ -393,12 +400,27 @@ def ask(
         current_seq = data.item_seq
 
     # 응답에 더하는 칸 (API 계약 2-2). 아래에서 약을 정하면서 채워요
-    extras = {"current_seq": None, "switched": False, "add_drugs": [], "candidates": None, "interaction": None}
+    extras = {"current_seq": None, "switched": False, "add_drugs": [], "candidates": None, "interaction": None,
+              "who_suggest": None}
+
+    # 질문 속 대상(임신·수유·어린이·어르신)이 화면의 '먹는 사람'과 다르면, 몰래 바꾸지 않고 바꿀지 물어요 (11/12)
+    # 답은 질문의 대상으로 하고, 화면이 "먹는 사람을 ○○으로 바꿀까요?"를 보여 줘요
+    question_targets = caution_targets(question)
+    if any(int(age) >= ELDER_AGE for age in AGE_IN_TEXT.findall(question)):
+        question_targets.append("노인")
+    asked_target = next((t for t in question_targets if t in WHO_TARGETS), None)
+    if data.who is not None and asked_target and asked_target != data.who:
+        extras["who_suggest"] = asked_target
 
     # 위험 사전은 외부 DB 조회. 실패 시 안전 검사를 건너뛰지 않습니다.
     # 로그인하고 건강정보에 동의한 사람은 내 약 화면에서 고른 프로필(임부·소아·노인)도 안전 검사에 넣습니다.
     try:
-        profile = get_profile(user["user_id"]) if user and user["agree_health"] else None
+        if data.who is not None:
+            # 질문에 다른 사람이 나왔으면(바꿀지 묻는 중) 이 답에는 화면의 먹는 사람을 쓰지 않아요
+            # (먹는 사람 '임신 중'인데 "80세 아버지" 답 끝에 '임신 중이라면 …'이 붙던 것)
+            profile = None if data.who == "없음" or extras["who_suggest"] else data.who
+        else:
+            profile = get_profile(user["user_id"]) if user and user["agree_health"] else None
         safety = check_safety(question, profile)
     except Exception as exc:
         raise HTTPException(status_code=503, detail="안전 검사 정보를 확인할 수 없어요.") from exc
@@ -594,9 +616,14 @@ def ask(
         and category == "복용방법"
         and not any(PERSONAL_INFO.search(u) for u in user_utterances)
         and not PERMISSION_ASK.search(question)
+        and profile not in ("임부", "수유", "소아")
     ):
         risk = analysis["risk"] = "일반 질문"
         analysis["action"], analysis["missing"] = "explain", "none"
+    # 먹는 사람이 임신·수유·어린이로 정해져 있으면 먹는 법·주의 질문은 그 사람의 질문이에요 (11/12:
+    # 먹는 사람 '임신 중'인데 판콜에이 "하루에 몇 번?" → 성인 용량을 알려 줌. 판콜에이는 임부 금기)
+    if profile in ("임부", "수유", "소아") and category in ("복용방법", "복용 전 경고", "주의사항"):
+        risk = analysis["risk"] = "개인 복용 질문"
 
     # ── 약 정하기 (11/12 구조 정리) ───────────────────────────────────────────
     # 이 질문이 어느 약 이야기인지 decide_drug 한 곳에서 정해요. 순서:
@@ -788,14 +815,16 @@ def ask(
         if any(age >= ELDER_AGE for age in ages):
             now_targets.append("노인")
         new_subject = bool(ages) or bool(NEW_SUBJECT.search(question))
-        before_targets = [] if new_subject else caution_targets(" ".join(user_utterances[1:]))
+        # 화면이 먹는 사람을 보냈으면 앞 대화를 짐작하지 않아요 (그 값이 아래 profile로 들어와 있어요)
+        before_targets = [] if new_subject or data.who is not None else caution_targets(" ".join(user_utterances[1:]))
         # 지금 질문에 대상이 있으면 그 대상만 답해요. 없을 때만 앞 대화, 그것도 없으면 프로필 (11/12 팀원 제보:
         # "어린이가 먹어도 돼?"에 [임신 중] 줄까지 나왔어요)
         now_dur = [t for t in dict.fromkeys(now_targets) if t in DUR_TARGETS]
         before_dur = [t for t in dict.fromkeys(before_targets) if t in DUR_TARGETS]
         targets = now_dur or before_dur or ([profile] if profile in DUR_TARGETS else [])
         if targets:
-            answer = _drug_cautions_answer(item_name, item_seq, targets, from_before=not now_dur, drug=drug)
+            basis = None if now_dur else ("who" if data.who is not None or not before_dur else "before")
+            answer = _drug_cautions_answer(item_name, item_seq, targets, basis=basis, drug=drug)
             if answer:
                 # 안전 검사가 끝에 같은 상담 문장을 붙이면 (질문에 '임신' 등이 있을 때) 여기서는 빼요
                 warned = (safety.get("message") or "") if level == "warn" else ""
@@ -803,7 +832,7 @@ def ask(
                 return reply(answer, item_seq, item_name, "식품의약품안전처 DUR", risk, category)
 
     # 임신·수유라고 했으면 나이를 되묻지 않아요 (성인이에요)
-    pregnant_or_nursing = bool({"임부", "수유"} & set(caution_targets(" ".join(user_utterances))))
+    pregnant_or_nursing = bool({"임부", "수유"} & set(caution_targets(" ".join(user_utterances)) + [profile]))
     if risk == "개인 복용 질문" and analysis["action"] == "clarify" and not (
         analysis["missing"] == "age" and pregnant_or_nursing
     ):
