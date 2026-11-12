@@ -107,7 +107,7 @@ function MedProfile({ checkKey, onChange }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div className="card">
         <p className="card-title">복용자 프로필</p>
-        <p className="muted">임신 중이거나 아이, 어르신이 먹는 약이면 프로필을 고르세요. 해당 주의사항을 먼저 보여 드려요.</p>
+        <p className="muted">임신 중이거나 아이, 어르신이 먹는 약이면 프로필을 고르세요. 해당 주의사항을 먼저 보여 드려요. AI 질문 답에도 이 프로필이 쓰여요.</p>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           {OPTIONS.map(option => (
             <button
