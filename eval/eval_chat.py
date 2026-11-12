@@ -20,6 +20,7 @@ CSV_PATH = "data/eval/chat_questions.csv"
 # 어느 약인지 되묻는 문구 (routes/chat.py ask_which_drug, 약 하나뿐인 병용 안내)
 ASK_DRUG = ("검색된 약 중", "같은 이름의 약이", "질문에서 정확한 의약품을", "어떤 약에 대한 질문인지", "함께 먹을 약을 하나 더")
 FALLBACK = "공식 자료를 바탕으로 생성한 설명의 정확성을 확인할 수 없어"
+GUIDE = "약에 대해 궁금한 점을 물어봐 주세요"
 
 
 def call(method, path, body=None):
@@ -58,6 +59,8 @@ def flow_of(res):
         return "pick"
     if answer.startswith(ASK_DRUG):
         return "ask_drug"
+    if answer.startswith(GUIDE):
+        return "guide"
     if res.get("source") == "식품의약품안전처 DUR":
         return "type_caution"
     if res.get("items") and not res.get("item_seq"):
@@ -77,14 +80,19 @@ passed, times = 0, []
 for row in rows:
     payload = {"question": row["question"], "history": []}
     try:
-        if row["drug_name"]:
-            drug = drug_cache.get(row["drug_name"]) or find_drug(row["drug_name"])
-            drug_cache[row["drug_name"]] = drug
-            payload["drugs"] = [drug]
-            payload["current_seq"] = drug["item_seq"]
+        # drug_name: 대화에 담은 약. 여러 개는 ;로 나눠요 (화면처럼 마지막에 담은 약이 지금 약)
+        names = [n.strip() for n in row["drug_name"].split(";") if n.strip()]
+        for name in names:
+            drug_cache[name] = drug_cache.get(name) or find_drug(name)
+        if names:
+            payload["drugs"] = [drug_cache[n] for n in names]
+            payload["current_seq"] = drug_cache[names[-1]]["item_seq"]
         start = time.perf_counter()
         res = call("POST", "/api/ask", payload)
         elapsed = time.perf_counter() - start
+    except error.HTTPError as exc:   # 503 같은 오류 응답도 실패로 세요 (예전: '안녕하세요' → 503)
+        print(f"[{row['id']:>2}] 실패  오류 {exc.code}  기대 {row['expected_flow']:<12} {row['question']}")
+        continue
     except (error.URLError, TimeoutError, ValueError) as exc:
         print(f"[{row['id']:>2}] 실행 오류  {row['question']} → {exc}")
         continue

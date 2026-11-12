@@ -23,6 +23,21 @@ from .chat_common import (
     ollama_generate,
 )
 
+def _normalize(result):
+    """AI가 쓴 값의 작은 어긋남을 고쳐요. 의미는 바꾸지 않아요 (11/12)
+    - 값 앞뒤 공백: "안녕하세요" → category " 기타"
+    - 약이 없다는 뜻의 drug_action "none"·빈 값: "근처 약국 추천해줘" → 가장 보수적인 clarify(어느 약인지 모름)
+    예전에는 이런 어긋남 하나로 8칸 검사에 걸려 503("서버가 응답하지 않아요")이 나갔어요"""
+    if not isinstance(result, dict):
+        return result
+    for key in ("risk", "category", "action", "missing", "drug_action"):
+        if isinstance(result.get(key), str):
+            result[key] = result[key].strip()
+    if result.get("drug_action") in (None, "", "none", "null"):
+        result["drug_action"] = "clarify"
+    return result
+
+
 def analyze_question(
     question: str,
     history: str,
@@ -117,6 +132,7 @@ JSON 외에 설명, 마크다운, 코드 블록을 출력하지 마세요.
         result = json.loads(raw)
     except (json.JSONDecodeError, TypeError) as exc:
         raise HTTPException(status_code=503, detail="AI 질문 분석 결과를 확인할 수 없어요.") from exc
+    result = _normalize(result)
     if not isinstance(result, dict):
         raise HTTPException(status_code=503, detail="AI 질문 분석 형식이 올바르지 않아요.")
 
@@ -147,6 +163,7 @@ JSON 외에 설명, 마크다운, 코드 블록을 출력하지 마세요.
                 status_code=503,
                 detail="AI 질문 재분석 형식이 올바르지 않아요.",
             )
+        result = _normalize(result)
 
     risk, category = result.get("risk"), result.get("category")
     action, missing = result.get("action"), result.get("missing")

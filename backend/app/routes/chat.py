@@ -44,11 +44,9 @@ from ..services.synonym import common_symptoms, find_symptom
 router = APIRouter(prefix="/api", tags=["Chat"])
 
 
-# ③번 팀원의 안전 사전이 먼저 실행되며, 이 목록은 기존 코드의 긴급 신호 보조 검사만 유지합니다.
-EMERGENCY_WORDS = (
-    "의식이 없", "의식을 잃", "숨을 못 쉬", "숨이 안 쉬",
-    "입술이 파래", "피를 토", "가슴이 조이고 숨이 차", "숨이 막혀",
-)
+# 응급(119) 단어는 안전 사전(data/dict/symptom_keyword.csv) 한 곳에서만 관리해요 (11/12)
+# 예전에는 여기에 문장 8개가 따로 있었는데, 글자가 그대로 같아야만 잡아서 "가슴이 조이는 느낌이에요"를 놓쳤고
+# 관리자 사전 탭에도 안 보였어요. 사전에 없던 것(가슴+조이, 의식+잃, 입술+파래·파랗)을 사전으로 옮겼어요
 
 # 생성된 답변의 기계적 1차 검사: 의료적 정확성을 보증하지 않습니다.
 
@@ -70,6 +68,11 @@ REDIRECT_DRUG_LIMIT = 5
 REDIRECT_LIST_NOTE = "효능에 이 증상이 적힌 약의 일부예요. 순서는 추천이 아니에요."
 REDIRECT_SEARCH_NOTE = "약 찾기에서 증상이나 약 이름으로 약 정보를 찾아볼 수 있어요."
 INGREDIENT_PICK_LIMIT = 10
+GUIDE_ANSWER = (
+    "약에 대해 궁금한 점을 물어봐 주세요. '타이레놀 하루에 몇 번 먹어요?'처럼 약 이름과 함께 물으면 "
+    "식약처 공식 자료로 답해 드려요. '머리가 지끈거려요'처럼 증상을 말하면 그 증상에 쓰는 약을 찾아 드리고, "
+    "가까운 약국은 위의 [약국] 메뉴에서 찾을 수 있어요."
+)
 # 약 목록을 보여 줘도 되는 증상: 증상 사전의 흔한 증상 + 감기류 (11/12)
 # 그 밖의 증상(흉통·호흡곤란 등)은 약보다 진료가 먼저일 수 있어서 목록 없이 예전처럼 되물어요
 # ("가슴이 조이는 느낌이에요"가 '흉통' 약 목록으로 나가던 것을 시험에서 발견)
@@ -133,15 +136,15 @@ TOGETHER_ANSWERS = {
 }
 
 
-def _find_drugs_in_parts(question: str, seqs: list[str]) -> tuple[list[dict], list[str]]:
+def _find_drugs_in_parts(question: str, seqs: list[str]) -> tuple[list[dict], list[str], dict[str, list[dict]]]:
     """'A랑 B 같이 먹어도 돼요?'를 잇는 말로 나눠 조각마다 약을 찾아요 (조각마다 AI 한 번, 동시에).
-    (찾은 약 목록, 같은 이름 제품이 여럿이라 정하지 못한 이름 목록)"""
+    (찾은 약 목록, 같은 이름 제품이 여럿이라 정하지 못한 이름 목록, 그 이름마다 후보 제품)"""
     parts = [p.strip() for p in NAME_JOINERS.split(question) if len(p.strip()) >= 2][:3]
     if len(parts) < 2:
-        return [], []
+        return [], [], {}
     with ThreadPoolExecutor(max_workers=len(parts)) as pool:
         results = list(pool.map(_find_named_drug, parts))
-    found, unclear = [], []
+    found, unclear, choices = [], [], {}
     for result in results:
         if result.get("status") == "found" and (result.get("drug") or {}).get("item_seq"):
             found.append(_ref(result["drug"]))
@@ -152,7 +155,8 @@ def _find_drugs_in_parts(question: str, seqs: list[str]) -> tuple[list[dict], li
                 found.append(_ref(in_list[0]))
             elif result.get("name"):
                 unclear.append(result["name"])
-    return found, unclear
+                choices[result["name"]] = result.get("candidates") or []
+    return found, unclear, choices
 
 
 def _together_answer(level: str | None, count: int, unclear: list[str]) -> str:
@@ -176,15 +180,6 @@ def recent_history(history: list[ChatTurn]) -> str:
     return "\n".join(
         f"{'사용자' if turn.role == 'user' else 'AI'}: {turn.content}"
         for turn in history[-6:]
-    )
-
-
-def has_emergency_signal(question: str) -> bool:
-    if any(word in question for word in EMERGENCY_WORDS):
-        return True
-    return bool(
-        re.search(r"호흡곤란|경련", question)
-        and re.search(r"지금|갑자기|발생|생겼|있어요|왔어|하고 있어|중이야|시작", question)
     )
 
 
@@ -412,11 +407,6 @@ def ask(
         result["items_note"] = REDIRECT_LIST_NOTE if result["items"] else REDIRECT_SEARCH_NOTE
         return result
 
-    if has_emergency_signal(question):
-        return emergency_reply(
-            "응급 상황이 의심됩니다. 즉시 119에 연락하거나 응급 진료를 받으세요.",
-        )
-
         # 현재 선택된 약의 정보를 확인해 약 변경 판단에 활용
     selected_drug = None
     selected_item_name = None
@@ -460,7 +450,7 @@ def ask(
     risk, category = analysis["risk"], analysis["category"]
     # AI가 '임신 중인데 타이레놀 먹어도 돼?'를 위험 상황으로 보고 119를 안내했어요 (11/12, 같은 질문 두 번 모두)
     # 앞으로 먹어도 되는지 묻기만 하고 이미 먹은 이야기가 없으면 개인 복용 질문으로 봐요
-    # 응급 표현·과다복용은 위의 안전 사전과 has_emergency_signal이 먼저 막아요
+    # 응급 표현·과다복용은 위의 안전 사전(check_safety)이 먼저 막아요
     if risk == "위험 상황" and ASK_BEFORE_TAKING.search(question) and not ALREADY_TAKEN.search(question):
         risk = analysis["risk"] = "개인 복용 질문"
     if risk == "위험 상황":
@@ -582,6 +572,9 @@ def ask(
         found = _by_ingredient_or_symptom(question, parsed, profile)
         if found:
             return found
+        # 인사·약과 상관없는 말 ("안녕하세요", "고마워요", "근처 약국 추천해줘"): 되묻지 말고 쓰는 법을 알려요 (11/12)
+        if category == "기타" and not named.get("name") and not analysis.get("new_drug_name"):
+            return reply(GUIDE_ANSWER, source="안내", risk=risk)
         return ask_which_drug(
             "어떤 약에 대한 질문인지 확인이 필요해요. "
             "정확한 제품명을 알려주시거나 제품을 선택해 주세요."
@@ -693,14 +686,21 @@ def ask(
         pool.setdefault(item_seq, item_name)
         for added in extras["add_drugs"]:
             pool.setdefault(added["item_seq"], added["item_name"])
-        unclear = []
+        unclear, choices = [], {}
         if NAME_JOINERS.search(question):
-            found, unclear = _find_drugs_in_parts(question, seqs)
+            found, unclear, choices = _find_drugs_in_parts(question, seqs)
             for ref in found:
                 if ref["item_seq"] not in pool and len(pool) < MAX_TOGETHER:
                     pool[ref["item_seq"]] = ref["item_name"]
                     if ref["item_seq"] not in seqs:
                         extras["add_drugs"] = extras["add_drugs"] + [ref]
+        # 짝이 안 되는데 질문에 적은 다른 약이 제품이 여럿이라 못 정했으면, "약을 하나 더 담아 주세요" 대신 그 약을 고르게 해요 (11/12)
+        # 예: 타이레놀정500을 담고 "타이레놀이랑 판콜에이 같이 먹어도 돼?" → 판콜에이 제품 버튼 → 고르면 두 약으로 다시 물어 DUR 판정
+        pick_name = next((name for name in unclear if choices.get(name)), None)
+        if len(pool) < 2 and pick_name:
+            extras["candidates"] = [_ref(c) for c in choices[pick_name]]
+            extras["switched"] = False
+            return ask_which_drug(f"'{pick_name}'은(는) 같은 이름의 제품이 여러 개예요. 함께 먹을 약을 골라 주세요.")
         if len(pool) >= 2:
             try:
                 # 내 약 점검과 같은 규칙: 소아 프로필이면 성인 최대 용량 문장을 빼요

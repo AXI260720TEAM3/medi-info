@@ -7,7 +7,7 @@ from fastapi import HTTPException
 load_dotenv()                 # ① .env → 환경변수 (이미 정한 OLLAMA_URL은 그대로 둔다)
 sys.path.insert(0, "backend") # ② backend 폴더에서 app을 찾게
 
-from app.routes.chat import analyze_question, has_emergency_signal  # ③ 이제 불러와도 안전
+from app.routes.chat import ALREADY_TAKEN, ASK_BEFORE_TAKING, analyze_question  # ③ 이제 불러와도 안전
 from app.services.safety import check_safety
 
 PATH = sys.argv[1] if len(sys.argv) > 1 else "data/eval/safety_questions.csv"
@@ -26,10 +26,11 @@ def final_level(question, level, risk):
     """/api/ask가 AI 답변을 만들기 전까지 판단하는 순서를 그대로 따른다."""
     if level in ("block", "redirect"):
         return level
-    if has_emergency_signal(question):
-        return "block"
     if risk == FAILED:
         return "error"
+    # #128: 먹기 전에 묻기만 하고 이미 먹은 말이 없으면 AI의 '위험 상황'을 쓰지 않아요 (routes/chat.py와 같은 규칙)
+    if risk == DANGER and ASK_BEFORE_TAKING.search(question) and not ALREADY_TAKEN.search(question):
+        return level
     if risk == DANGER:
         return "block"
     return level
