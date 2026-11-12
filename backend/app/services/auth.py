@@ -157,6 +157,8 @@ def withdraw_health(user_id: int):
     """동의를 철회하면 건강정보(내 약, 프로필)도 같이 지운다."""
     with SessionLocal() as db:
         params = {"user_id": user_id}
+        db.execute(text("DELETE FROM med_use_history WHERE user_id = :user_id"), params)
+        db.execute(text("DELETE FROM push_subscription WHERE user_id = :user_id"), params)
         db.execute(text("DELETE FROM user_med WHERE user_id = :user_id"), params)
         db.execute(text("DELETE FROM user_profile WHERE user_id = :user_id"), params)
         db.execute(text("DELETE FROM user_consent WHERE user_id = :user_id AND consent_type = '건강정보'"), params)
