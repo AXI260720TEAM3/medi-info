@@ -68,6 +68,11 @@ REDIRECT_DRUG_LIMIT = 5
 REDIRECT_LIST_NOTE = "효능에 이 증상이 적힌 약의 일부예요. 순서는 추천이 아니에요."
 REDIRECT_SEARCH_NOTE = "약 찾기에서 증상이나 약 이름으로 약 정보를 찾아볼 수 있어요."
 INGREDIENT_PICK_LIMIT = 10
+GUIDE_ANSWER = (
+    "약에 대해 궁금한 점을 물어봐 주세요. '타이레놀 하루에 몇 번 먹어요?'처럼 약 이름과 함께 물으면 "
+    "식약처 공식 자료로 답해 드려요. '머리가 지끈거려요'처럼 증상을 말하면 그 증상에 쓰는 약을 찾아 드리고, "
+    "가까운 약국은 위의 [약국] 메뉴에서 찾을 수 있어요."
+)
 # 약 목록을 보여 줘도 되는 증상: 증상 사전의 흔한 증상 + 감기류 (11/12)
 # 그 밖의 증상(흉통·호흡곤란 등)은 약보다 진료가 먼저일 수 있어서 목록 없이 예전처럼 되물어요
 # ("가슴이 조이는 느낌이에요"가 '흉통' 약 목록으로 나가던 것을 시험에서 발견)
@@ -567,6 +572,9 @@ def ask(
         found = _by_ingredient_or_symptom(question, parsed, profile)
         if found:
             return found
+        # 인사·약과 상관없는 말 ("안녕하세요", "고마워요", "근처 약국 추천해줘"): 되묻지 말고 쓰는 법을 알려요 (11/12)
+        if category == "기타" and not named.get("name") and not analysis.get("new_drug_name"):
+            return reply(GUIDE_ANSWER, source="안내", risk=risk)
         return ask_which_drug(
             "어떤 약에 대한 질문인지 확인이 필요해요. "
             "정확한 제품명을 알려주시거나 제품을 선택해 주세요."
