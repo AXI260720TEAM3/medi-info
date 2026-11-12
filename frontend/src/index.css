@@ -980,6 +980,7 @@ a.source-chip:hover{
   min-width: 0;
 }
 .chat-basis-note { font-size: 14px; }
+.chat-reset { margin-left: auto; min-height: 44px; }
 .chat-who {
   width: auto;
   min-height: 44px;
@@ -1008,6 +1009,11 @@ a.source-chip:hover{
   gap: 18px;
   min-height: 320px;
   padding: 22px;
+  /* 대화창 안에서만 스크롤 (11/12): 페이지가 길어지지 않아 위의 기준 띠·약 목록과 아래 입력칸이 제자리에 있어요 */
+  /* 화면 높이에서 위(머리말·제목·기준 띠)와 아래(입력칸·안내)를 뺀 만큼. 노트북(높이 900px)에서도 한 화면에 들어와요 */
+  max-height: max(320px, calc(100vh - 480px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .chat-msg {
   max-width: 88%;

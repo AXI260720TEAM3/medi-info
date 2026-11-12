@@ -447,7 +447,8 @@ def ask(
         if extras["switched"] and result.get("item_name"):
             result["answer"] = f"이제 {base_name(result['item_name'])}에 대해 답할게요.\n\n{result['answer']}"
 
-        if level == "warn" and safety.get("message"):
+        # 쓰는 법 안내(인사·약국)에는 붙이지 않아요 (먹는 사람 '임신 중'이면 "감사합니다"에도 '임신 중이라면…'이 붙던 것)
+        if level == "warn" and safety.get("message") and result["answer"] != GUIDE_ANSWER:
             result["answer"] += "\n\n" + safety["message"]
 
         result["answer"] = add_disclaimer(result["answer"])
