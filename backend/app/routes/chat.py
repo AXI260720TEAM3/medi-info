@@ -141,6 +141,13 @@ GREETING = re.compile(
 )
 
 
+# 질문 속 나이·사람: 65세 이상이면 노인. 새 나이·사람이 나오면 앞 대화의 주의 대상(임신·어린이 …)은 쓰지 않아요
+# (11/12 시험: "지르텍 7살 아이" 다음 "우리 아버지가 80세인데 이 약 먹어도 돼?" → '어린이' 기준으로 답함)
+AGE_IN_TEXT = re.compile(r"(?<!\d)(\d{1,3})\s*(?:세|살)")
+ELDER_AGE = 65
+NEW_SUBJECT = re.compile(r"아버지|어머니|아빠|엄마|할머니|할아버지|남편|아내|아들|딸|동생|친구|제가|저는|내가|나는")
+
+
 def _drug_cautions_answer(item_name: str, item_seq: str, targets: list[str], from_before: bool) -> str | None:
     """약 하나의 식약처 DUR 임부·소아·노인 자료로 답을 써요 (AI 안 부름, 내 약 프로필 주의사항과 같은 자료)
     조회에 실패하면 None (원래 흐름으로)"""
@@ -733,7 +740,11 @@ def ask(
     #       앞 대화에 '임신'이 있으면 "이거 하루에 몇 번?"도 이유 없이 "판단하기 어려워요"였어요
     if risk == "개인 복용 질문":
         now_targets = caution_targets(question)
-        before_targets = caution_targets(" ".join(user_utterances[1:]))
+        ages = [int(age) for age in AGE_IN_TEXT.findall(question)]
+        if any(age >= ELDER_AGE for age in ages):
+            now_targets.append("노인")
+        new_subject = bool(ages) or bool(NEW_SUBJECT.search(question))
+        before_targets = [] if new_subject else caution_targets(" ".join(user_utterances[1:]))
         targets = [t for t in dict.fromkeys(now_targets + before_targets + [profile]) if t in DUR_TARGETS]
         if targets:
             answer = _drug_cautions_answer(item_name, item_seq, targets, from_before=not any(t in DUR_TARGETS for t in now_targets))
