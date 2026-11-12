@@ -121,9 +121,13 @@ for row in rows:
     got = flow_of(res)
     ok = got == row["expected_flow"] or got in ALSO_OK.get(row["expected_flow"], ())
     # must 칸: 답에 꼭 들어가야 할 말 (답의 종류만 맞고 내용이 틀린 것을 잡아요. 예: 80세인데 '어린이'로 답함)
-    must = (row.get("must") or "").strip()
-    if ok and must and must not in res.get("answer", ""):
-        ok, got = False, f"{got}(내용: '{must}' 없음)"
+    # 여러 말은 |로 나누고, !로 시작하면 들어 있으면 안 되는 말이에요 (예: "[어린이]|![임신 중]")
+    for word in filter(None, (w.strip() for w in (row.get("must") or "").split("|"))):
+        answer_text = res.get("answer", "")
+        if ok and word.startswith("!") and word[1:] in answer_text:
+            ok, got = False, f"{got}(내용: '{word[1:]}' 있으면 안 됨)"
+        elif ok and not word.startswith("!") and word not in answer_text:
+            ok, got = False, f"{got}(내용: '{word}' 없음)"
     official += got == "official_text"
     passed += ok
     times.append(elapsed)
