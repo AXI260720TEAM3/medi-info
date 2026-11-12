@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router'
+import { Link, useLocation } from 'react-router'
 import ChatDrugChips, { MAX_DRUGS } from '../components/ChatDrugChips'
 import ChatScan from '../components/ChatScan'
 import MedCheckResult from '../components/MedCheckResult'
@@ -47,7 +47,9 @@ export default function Chat() {
   const [currentSeq, setCurrentSeq] = useState(() => initialDrugs()[0]?.item_seq ?? null)
   const [chipNotice, setChipNotice] = useState('')
   const [messages, setMessages] = useState([])
-  const [draft, setDraft] = useState('')
+  // 첫 화면에서 고른 질문은 입력칸에 채워 둬요 (보내기는 사용자가 눌러요)
+  const location = useLocation()
+  const [draft, setDraft] = useState(() => location.state?.question ?? '')
   const [pendingQuestion, setPendingQuestion] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')

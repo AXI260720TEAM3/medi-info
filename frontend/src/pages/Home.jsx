@@ -2,79 +2,86 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import OpenPharmacies from '../components/OpenPharmacies'
 
-// 첫 화면 (11/11, 시안 design/yakbaro-mockup 홈): 큰 검색 → 할 수 있는 일 3칸 → 가까운 문 연 약국 · 119 안내
-// 검색은 약 찾기 화면(/drugs?q=)으로 넘겨요. 약국은 채팅과 같은 부품(OpenPharmacies)을 써요
-const EXAMPLES = ['타이레놀', '콧물이 나요', '속이 쓰려요']
-
-const ICONS = {
-  chat: <path d="M4 5h16v11H9l-5 4z" />,
-  pill: <><rect x="3" y="9" width="18" height="6" rx="3" transform="rotate(-45 12 12)" /><path d="M9.5 9.5l5 5" /></>,
-  pin: <><path d="M12 21s-7-6.2-7-11a7 7 0 0114 0c0 4.8-7 11-7 11z" /><circle cx="12" cy="10" r="2.5" /></>,
+// 첫 화면 (11/12 시안 "찾기 상자가 주인공"): 찾기 상자 → 탭 2개 → 물어볼 수 있는 질문 → 내 약 · 약국 · 119 칸 → 문 연 약국
+// "약 찾기" 탭은 약 찾기 화면(/drugs?q=)으로, "AI에게 물어보기" 탭은 AI 질문 화면에 글을 채워서 넘겨요
+const MODES = {
+  drug: { label: '약 이름으로 찾기', placeholder: '약 이름 (예: 타이레놀)' },
+  ask: { label: 'AI에게 물어보기', placeholder: '궁금한 점 (예: 머리가 아파요)' },
 }
 
-const CARDS = [
-  { to: '/chat', icon: 'chat', title: 'AI에게 물어보기', text: '"하루에 몇 번 먹어요?"처럼 물으면 공식 자료로 답해요' },
-  { to: '/my-meds', icon: 'pill', title: '함께 먹어도 될까?', text: '먹는 약을 담으면 짝마다 식약처 DUR로 확인해요' },
-  { to: '/pharmacy', icon: 'pin', title: '지금 문 연 약국', text: '가까운 순서로, 오늘 몇 시까지 여는지 보여 드려요' },
+// 누르면 AI 질문 화면에 글이 채워져요 (보내기는 사용자가 눌러요)
+const QUESTIONS = [
+  { text: '타이레놀은 하루에 몇 번 먹어요?', tag: '약 정보', tone: 'info' },
+  { text: '임신 중인데 감기약 먹어도 돼요?', tag: '안전', tone: 'safe' },
+  { text: '판콜에이랑 타이레놀 같이 먹어도 돼요?', tag: '함께 먹기', tone: 'together' },
+  { text: '아이 해열제는 몇 시간 간격으로 먹여요?', tag: '약 정보', tone: 'info' },
 ]
 
 function Home() {
   const navigate = useNavigate()
+  const [mode, setMode] = useState('drug')
   const [keyword, setKeyword] = useState('')
 
-  const search = text => {
-    const q = text.trim()
-    if (q) navigate(`/drugs?q=${encodeURIComponent(q)}`)
+  const ask = question => navigate('/chat', { state: { question } })
+  const submit = () => {
+    const q = keyword.trim()
+    if (!q) return
+    if (mode === 'drug') navigate(`/drugs?q=${encodeURIComponent(q)}`)
+    else ask(q)
   }
 
   return (
     <div className="home">
-      <section className="home-hero">
-        <span className="home-badge">식약처 공식 자료로 답하는 약 정보</span>
-        <h1 className="home-title">어떤 약이 궁금하세요?</h1>
-        <p className="home-lead">
-          약 이름이나 증상을 말하듯이 적어 보세요. 함께 먹어도 되는지, 지금 문 연 약국은 어디인지도 알려 드려요.
-        </p>
-        <form className="home-search" onSubmit={e => { e.preventDefault(); search(keyword) }}>
-          <label htmlFor="home-search" className="sr-only">약 이름이나 증상</label>
-          <input id="home-search" className="input" type="search" placeholder="예: 타이레놀, 머리가 지끈거려요"
-            value={keyword} onChange={e => setKeyword(e.target.value)} />
-          <button type="submit" className="btn btn-primary">찾기</button>
-        </form>
-        <div className="home-examples">
-          <span className="muted">자주 찾는 말</span>
-          {EXAMPLES.map(text => (
-            <button key={text} type="button" className="home-example" onClick={() => search(text)}>{text}</button>
-          ))}
-        </div>
-      </section>
+      <h1 className="sr-only">약바로: 어떤 약이 궁금하세요?</h1>
 
-      <section className="home-cards" aria-label="할 수 있는 일">
-        {CARDS.map(card => (
-          <Link key={card.to} to={card.to} className="home-card">
-            <span className="page-title-icon" aria-hidden="true">
-              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                {ICONS[card.icon]}
-              </svg>
-            </span>
-            <strong className="home-card-title">{card.title}</strong>
-            <span className="home-card-text">{card.text}</span>
-          </Link>
+      <form className="home-search" onSubmit={e => { e.preventDefault(); submit() }}>
+        <label htmlFor="home-search" className="sr-only">{MODES[mode].label}</label>
+        <input id="home-search" className="input" type="search" placeholder={MODES[mode].placeholder}
+          value={keyword} onChange={e => setKeyword(e.target.value)} />
+        <button type="submit" className="btn btn-primary">{mode === 'drug' ? '찾기' : '묻기'}</button>
+      </form>
+
+      <div className="home-tabs" role="group" aria-label="찾는 방법">
+        {Object.entries(MODES).map(([key, m]) => (
+          <button key={key} type="button" className={`home-tab${mode === key ? ' is-on' : ''}`}
+            aria-pressed={mode === key} onClick={() => setMode(key)}>
+            {m.label}
+          </button>
         ))}
+      </div>
+
+      <section className="home-box" aria-labelledby="home-questions">
+        <h2 id="home-questions" className="home-box-title">이런 걸 물어볼 수 있어요</h2>
+        <ol className="home-questions">
+          {QUESTIONS.map((q, i) => (
+            <li key={q.text}>
+              <button type="button" className="home-question" onClick={() => ask(q.text)}>
+                <span className="home-question-num">{i + 1}</span>
+                <span className="home-question-text">{q.text}</span>
+                <span className={`home-tag is-${q.tone}`}>{q.tag}</span>
+              </button>
+            </li>
+          ))}
+        </ol>
       </section>
 
-      <section className="home-bottom">
-        <div className="home-pharmacy">
-          <OpenPharmacies />
-        </div>
-        <aside className="home-alert" aria-label="응급 안내">
-          <strong className="home-alert-title">이럴 땐 바로 119·응급실로</strong>
-          <p style={{ margin: 0 }}>
-            숨이 차거나 가슴이 조일 때, 약을 한꺼번에 많이 먹었을 때는 검색하지 말고 바로 도움을 받으세요.
-          </p>
-          <span className="home-alert-note">약바로는 진단이나 처방을 하지 않아요</span>
-        </aside>
+      <nav className="home-quick" aria-label="바로 가기">
+        <Link to="/my-meds" className="home-quick-cell">
+          <strong>내 약</strong>
+          <span>함께 먹어도 되는지 확인</span>
+        </Link>
+        <Link to="/pharmacy" className="home-quick-cell">
+          <strong>문 연 약국</strong>
+          <span>가까운 곳 찾기</span>
+        </Link>
+        <a href="tel:119" className="home-quick-cell is-alert">
+          <strong>급할 땐 119</strong>
+          <span>숨이 차거나 약을 많이 먹었을 때</span>
+        </a>
+      </nav>
+
+      <section className="home-box">
+        <OpenPharmacies />
       </section>
     </div>
   )
