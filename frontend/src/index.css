@@ -958,6 +958,50 @@ a.source-chip:hover{
 @media (max-width: 900px) {
   .chat-side { max-width: none; }
 }
+/* 지금 답의 기준 (11/12): 약 · 먹는 사람. 먹는 사람이 정해져 있으면 주의 색으로 눈에 띄게 */
+.chat-basis {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
+  padding: 12px 18px;
+  border: 1.5px solid var(--primary);
+}
+.chat-basis-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--primary-text);
+  letter-spacing: .03em;
+}
+.chat-basis-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.chat-basis-note { font-size: 14px; }
+.chat-who {
+  width: auto;
+  min-height: 44px;
+  padding: 0 12px;
+}
+.chat-who.is-set {
+  border-color: var(--caution);
+  background: var(--caution-bg);
+  color: var(--caution-text);
+  font-weight: 700;
+}
+.chat-who-suggest {
+  margin-top: 10px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--caution-bg);
+  border: 1px solid var(--caution-line);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  white-space: normal;
+}
 .chat-thread {
   display: flex;
   flex-direction: column;

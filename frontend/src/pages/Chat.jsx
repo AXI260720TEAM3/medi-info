@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link, useLocation } from 'react-router'
+import { Link, useLocation, useOutletContext } from 'react-router'
 import ChatDrugChips, { MAX_DRUGS } from '../components/ChatDrugChips'
 import ChatScan from '../components/ChatScan'
 import MedCheckResult from '../components/MedCheckResult'
@@ -33,6 +33,16 @@ function addTo(list, drug) {
   return [...list, { item_seq: String(drug.item_seq), item_name: drug.item_name || '' }]
 }
 
+// 먹는 사람 (11/12, 시안 '지금 답의 기준'). 값은 내 약의 복용자 프로필과 같아요 (서버 AskRequest.who)
+const WHO_OPTIONS = [
+  { value: '없음', label: '성인 (해당 없음)' },
+  { value: '임부', label: '임신 중' },
+  { value: '수유', label: '수유 중' },
+  { value: '소아', label: '어린이' },
+  { value: '노인', label: '어르신' },
+]
+const WHO_LABEL = Object.fromEntries(WHO_OPTIONS.map(o => [o.value, o.label]))
+
 // REQ-F-050: 약사 상담을 권하는 답이면 답변 아래에 "지금 문 연 약국"을 붙여요
 function needsPharmacy(message, isLast) {
   return message.role === 'assistant'
@@ -55,6 +65,37 @@ export default function Chat() {
   const [error, setError] = useState('')
   const bottomRef = useRef(null)
   const requestInFlight = useRef(false)
+
+  // 먹는 사람: 로그인하고 건강정보에 동의했으면 내 약 프로필을 불러오고, 바꾸면 프로필에도 저장해요
+  // 그 밖에는 이 화면에서만 기억해요. 서버는 앞 대화로 짐작하지 않고 이 값을 써요
+  const { user } = useOutletContext() ?? {}
+  const canSaveWho = Boolean(user?.agree_health)
+  const [who, setWho] = useState('없음')
+  useEffect(() => {
+    if (!canSaveWho) return
+    let alive = true
+    fetch('/api/my-meds/profile')
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => { if (alive && data?.target && WHO_LABEL[data.target]) setWho(data.target) })
+      .catch(() => {})
+    return () => { alive = false }
+  }, [canSaveWho])
+
+  function changeWho(next) {
+    setWho(next)
+    if (!canSaveWho) return
+    fetch('/api/my-meds/profile', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target: next }),
+    }).catch(() => {})   // 저장이 안 돼도 이 화면의 답에는 바로 쓰여요
+  }
+
+  // 답 아래의 "먹는 사람을 ○○으로 바꿀까요?": 바꾸거나 그대로를 누르면 그 답에서는 닫아요
+  function settleSuggest(index, next) {
+    if (next) changeWho(next)
+    setMessages(prev => prev.map((m, i) => (i === index ? { ...m, whoSuggest: null } : m)))
+  }
 
   // 빨간 자동 알림 (F-028): 담은 약이 2개 이상이면 목록이 바뀔 때마다 판정해서, 함께 먹으면 안 되는 짝만 위에 띄워요
   // 판정은 로그인 없는 /api/interactions/check (AI 없음, 기록 없음). 결과에 어느 목록의 판정인지(key)를 같이 둬서,
@@ -104,6 +145,7 @@ export default function Chat() {
           history,
           drugs: list,
           current_seq: current,
+          who,
         }),
       })
 
@@ -140,6 +182,7 @@ export default function Chat() {
           itemsNote: result.items_note || '',
           candidates: result.candidates || null,   // 같은 이름의 약이 여럿: 골라서 다시 묻기
           interaction: result.interaction || null, // 함께 먹기 판정 (식약처 DUR) → 결과 카드
+          whoSuggest: result.who_suggest || null,  // 질문 속 대상이 먹는 사람과 다르면 바꿀지 물어요
           question,
         },
       ])
@@ -264,6 +307,30 @@ export default function Chat() {
       </aside>
 
       <div className="chat-main">
+      {/* 지금 답의 기준 (11/12 시안): 채팅이 무엇을 기준으로 답하는지 늘 보이고, 먹는 사람은 여기서 바꿔요 */}
+      <div className="card chat-basis" role="group" aria-label="지금 답의 기준">
+        <span className="chat-basis-title">지금 답의 기준</span>
+        <span className="chat-basis-item">
+          <span className="muted">약</span>
+          <strong>{baseName(drugs.find(d => d.item_seq === currentSeq)?.item_name || '') || '아직 없음'}</strong>
+        </span>
+        <span className="chat-basis-item">
+          <label htmlFor="chat-who" className="muted">먹는 사람</label>
+          <select
+            id="chat-who"
+            className={`input chat-who${who !== '없음' ? ' is-set' : ''}`}
+            value={who}
+            onChange={(event) => changeWho(event.target.value)}
+            disabled={loading}
+          >
+            {WHO_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
+        </span>
+        <span className="muted chat-basis-note">
+          {canSaveWho ? '내 약의 복용자 프로필과 같아요' : '로그인하고 건강정보에 동의하면 내 약 프로필에도 저장돼요'}
+        </span>
+      </div>
+
       {/* 빨간 자동 알림: 묻지 않아도, 함께 먹으면 안 되는 짝만 (주의는 물었을 때만) */}
       {drugs.length >= 2 && band.key === listKey && (
         <MedCheckResult answer={band.answer} levels={['block']} emptyText={null} showCount={false} showNote={false} />
@@ -286,6 +353,17 @@ export default function Chat() {
           {message.interaction && (
             <div style={{ marginTop: 8, whiteSpace: 'normal' }}>
               <MedCheckResult answer={message.interaction} showNote={false} />
+            </div>
+          )}
+
+          {/* 질문에 다른 사람이 나왔을 때 (예: 먹는 사람 '임신 중'인데 "80세 아버지"): 몰래 바꾸지 않고 물어요 */}
+          {message.whoSuggest && message.whoSuggest !== who && (
+            <div className="chat-who-suggest" role="group" aria-label="먹는 사람 바꾸기">
+              <span>먹는 사람을 <strong>{WHO_LABEL[message.whoSuggest]}</strong>(으)로 바꿀까요?</span>
+              <span style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button type="button" className="btn btn-primary" onClick={() => settleSuggest(index, message.whoSuggest)}>바꾸기</button>
+                <button type="button" className="btn btn-secondary" onClick={() => settleSuggest(index, null)}>{WHO_LABEL[who]} 그대로</button>
+              </span>
             </div>
           )}
 
