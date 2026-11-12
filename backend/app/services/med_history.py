@@ -200,3 +200,24 @@ def stop_use_history(
         db.commit()
 
     return dict(row)
+
+# 5. 복용이력 삭제
+def delete_use_history(user_id: int, history_id: int) -> None:
+    with SessionLocal() as db:
+        deleted_id = db.execute(
+            text("""
+                DELETE FROM med_use_history
+                WHERE history_id = :history_id
+                  AND user_id = :user_id
+                RETURNING history_id
+            """),
+            {
+                "history_id": history_id,
+                "user_id": user_id,
+            },
+        ).scalar_one_or_none()
+
+        if deleted_id is None:
+            raise HistoryNotFoundError()
+
+        db.commit()

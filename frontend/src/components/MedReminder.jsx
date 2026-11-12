@@ -105,7 +105,6 @@ function MedReminder() {
     }
   }
 
-
   const handleDevicePushToggle = async () => {
     setDeviceBusy(true)
     setError('')
@@ -113,7 +112,6 @@ function MedReminder() {
 
     try {
       if (devicePushDisabled) {
-        // 사용자가 직접 켜기를 눌렀을 때만 다시 연결
         await ensurePushSubscription(true)
         setDevicePushDisabled(false)
         setMessage('이 기기 알림을 켰어요.')
@@ -128,7 +126,6 @@ function MedReminder() {
       setDeviceBusy(false)
     }
   }
-
 
   if (histories === null || reminders === null) {
     if (error) return <ErrorMessage message={error} />
@@ -157,6 +154,13 @@ function MedReminder() {
     return groups
   }, [])
 
+  const fieldStyle = {
+    display: 'grid',
+    gap: '6px',
+    minWidth: 0,
+    alignContent: 'start',
+  }
+
   return (
     <section className="card med-panel">
       <div>
@@ -174,15 +178,33 @@ function MedReminder() {
           </p>
         </>
       ) : (
-        <form onSubmit={handleSave} className="med-form">
-          <h3 className="panel-subtitle">알림 시간 등록</h3>
-          <div className="med-field">
+        <form
+          onSubmit={handleSave}
+          className="med-form"
+          style={{
+            display: 'grid',
+            gridTemplateColumns:
+              'repeat(auto-fit, minmax(min(100%, 180px), 1fr))',
+            gap: '12px',
+            alignItems: 'end',
+            width: '100%',
+          }}
+        >
+          <h3
+            className="panel-subtitle"
+            style={{ gridColumn: '1 / -1', margin: 0 }}
+          >
+            알림 시간 등록
+          </h3>
+
+          <div className="med-field" style={fieldStyle}>
             <label htmlFor="reminder-history">
               약 선택
             </label>
             <select
               id="reminder-history"
               className="input"
+              style={{ width: '100%', minWidth: 0 }}
               value={historyId}
               onChange={e => setHistoryId(e.target.value)}
               required
@@ -199,61 +221,66 @@ function MedReminder() {
             </select>
           </div>
 
-          <div
-            style={{
-              display: 'flex',
-              gap: '12px',
-              flexWrap: 'wrap',
-              marginTop: '12px',
-              marginBottom: '12px',
-            }}
-          >
-            <div className="med-field" style={{ flex: '1 1 150px' }}>
-              <label htmlFor="reminder-label">
-                복용 시간대
-              </label>
-              <select
-                id="reminder-label"
-                className="input"
-                value={alarmLabel}
-                onChange={e => setAlarmLabel(e.target.value)}
-                required
-              >
-                <option value="">선택해 주세요</option>
-                {ALARM_LABELS.map(label => (
-                  <option key={label} value={label}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="med-field" style={{ flex: '1 1 150px' }}>
-              <label htmlFor="reminder-time">
-                알람 시간
-              </label>
-              <input
-                id="reminder-time"
-                className="input"
-                type="time"
-                value={remindTime}
-                onChange={e => setRemindTime(e.target.value)}
-                required
-              />
-            </div>
+          <div className="med-field" style={fieldStyle}>
+            <label htmlFor="reminder-label">
+              복용 시간대
+            </label>
+            <select
+              id="reminder-label"
+              className="input"
+              style={{ width: '100%', minWidth: 0 }}
+              value={alarmLabel}
+              onChange={e => setAlarmLabel(e.target.value)}
+              required
+            >
+              <option value="">선택해 주세요</option>
+              {ALARM_LABELS.map(label => (
+                <option key={label} value={label}>
+                  {label}
+                </option>
+              ))}
+            </select>
           </div>
 
-          <button
-            type="submit"
-            className="btn btn-primary"
-            disabled={saving}
+          <div className="med-field" style={fieldStyle}>
+            <label htmlFor="reminder-time">
+              알람 시간
+            </label>
+            <input
+              id="reminder-time"
+              className="input"
+              style={{ width: '100%', minWidth: 0 }}
+              type="time"
+              value={remindTime}
+              onChange={e => setRemindTime(e.target.value)}
+              required
+            />
+          </div>
+
+          <div
+            style={{
+              gridColumn: '1 / -1',
+              display: 'flex',
+              justifyContent: 'flex-end',
+            }}
           >
-            {saving ? '저장 중...' : '복약 알람 저장'}
-          </button>
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={saving}
+            >
+              {saving ? '저장 중...' : '복약 알람 저장'}
+            </button>
+          </div>
         </form>
       )}
 
-      {message && <p role="status" className="form-notice">{message}</p>}
+      {message && (
+        <p role="status" className="form-notice">
+          {message}
+        </p>
+      )}
+
       {error && <ErrorMessage message={error} />}
 
       <div
@@ -332,7 +359,6 @@ function MedReminder() {
           ))}
         </div>
       )}
-
     </section>
   )
 }
