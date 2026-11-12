@@ -37,7 +37,8 @@ from ..services.query_ai import parse_query
 from ..services.search import base_name
 from ..deps import get_optional_user
 from ..services.my_meds import get_profile
-from ..services.safety import check_safety, add_disclaimer
+from ..services.safety import check_safety, add_disclaimer, caution_targets
+from ..services.drug_type import DUR_TARGETS, find_drug_type, type_cautions, type_cautions_answer
 from ..services.synonym import find_symptom
 
 router = APIRouter(prefix="/api", tags=["Chat"])
@@ -61,6 +62,9 @@ PERSONAL_INFO = re.compile(
 )
 # 허락을 묻는 말은 개인 질문 그대로 ("이 약 먹어도 돼요?")
 PERMISSION_ASK = re.compile(r"먹어도|복용해도|먹여도|괜찮")
+# 먹기 전에 묻는 말과 이미 먹은 말: AI의 '위험 상황'을 그대로 쓸지 정할 때 봐요 (11/12)
+ASK_BEFORE_TAKING = re.compile(r"(?:먹어|먹여|복용해|드셔|발라|써|사용해)\s*도\s*(?:돼|되|괜찮|될)")
+ALREADY_TAKEN = re.compile(r"먹었|먹은|먹여버|먹였|삼켰|마셨|복용했|복용한|드셨|과다|많이")
 
 REDIRECT_DRUG_LIMIT = 5
 REDIRECT_LIST_NOTE = "효능에 이 증상이 적힌 약의 일부예요. 순서는 추천이 아니에요."
@@ -410,6 +414,11 @@ def ask(
         )
         named = named_future.result()
     risk, category = analysis["risk"], analysis["category"]
+    # AI가 '임신 중인데 타이레놀 먹어도 돼?'를 위험 상황으로 보고 119를 안내했어요 (11/12, 같은 질문 두 번 모두)
+    # 앞으로 먹어도 되는지 묻기만 하고 이미 먹은 이야기가 없으면 개인 복용 질문으로 봐요
+    # 응급 표현·과다복용은 위의 안전 사전과 has_emergency_signal이 먼저 막아요
+    if risk == "위험 상황" and ASK_BEFORE_TAKING.search(question) and not ALREADY_TAKEN.search(question):
+        risk = analysis["risk"] = "개인 복용 질문"
     if risk == "위험 상황":
         return emergency_reply(
             "과다복용 또는 응급 상황이 의심되면 증상을 기다리지 말고 즉시 119나 응급의료기관에 연락하세요. "
@@ -500,6 +509,18 @@ def ask(
         if target_item_seq not in seqs:
             extras["add_drugs"] = [_ref(named.get("drug") or {"item_seq": target_item_seq})]
         target_item_seq = current_seq
+
+    # 제품 이름 없이 약 종류로 물으면 ('임신했는데 두통약 먹어도 돼?'), 되묻기 전에
+    # 그 종류에 흔한 성분의 DUR 임부·소아·노인 자료를 먼저 보여 줘요 (11/12, drug_type.py)
+    if target_item_seq is None and not current_seq:
+        drug_type = find_drug_type(question)
+        targets = [t for t in caution_targets(question, profile) if t in DUR_TARGETS] if drug_type else []
+        if targets:
+            log_meta["question_type"] = "약확인"
+            return reply(
+                type_cautions_answer(type_cautions(drug_type, targets)),
+                source="식품의약품안전처 DUR", risk=risk,
+            )
 
     if named_status == "none" and named.get("name") and not current_seq:
         # 약 이름을 적었는데 찾지 못했고, 대신 답할 지금 약도 없음
