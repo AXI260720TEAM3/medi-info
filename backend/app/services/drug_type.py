@@ -71,6 +71,46 @@ def _cautions_or_none(target: str, ingredient: str):
         return None
 
 
+DUR_TARGETS = tuple(CAUTION_URLS)  # DUR 자료가 있는 주의 대상 (임부·소아·노인)
+TARGET_NAMES = {"임부": "임신 중", "소아": "어린이", "노인": "어르신"}
+# DUR 자료 종류를 쉬운 말로
+TYPE_MEANINGS = {
+    "임부금기": "임신 중에는 쓰지 않도록 식약처가 정한 성분",
+    "특정연령대금기": "특정 나이에서는 쓰지 않거나 조심하도록 식약처가 정한 성분",
+    "노인주의": "어르신이 쓸 때 주의하도록 식약처가 정한 성분",
+}
+ASK_NAME = "갖고 계신 약의 이름을 알려 주시면 그 약에 실제로 든 성분과 주의사항을 확인해 드릴게요."
+
+
+def type_cautions_answer(result: dict) -> str:
+    """type_cautions 결과로 AI 질문의 답을 만든다. AI를 부르지 않고 코드가 쓴다 (지어내지 않게, 빨리)
+
+    약을 골라 주지 않는다: '이 성분을 드세요'가 아니라 'DUR 자료에 이렇게 있다/없다'만 적는다.
+    """
+    lines = [f"{result['drug_type']}에 흔히 들어 있는 성분을 식약처 DUR 자료에서 확인했어요."]
+    for target in result["targets"]:
+        listed, not_listed, failed = {}, [], []
+        for row in result["ingredients"]:
+            cautions = row["cautions"][target]
+            if cautions is None:
+                failed.append(row["ingredient"])
+            elif cautions:
+                listed.setdefault(cautions[0]["type"], []).append(row["ingredient"])
+            else:
+                not_listed.append(row["ingredient"])
+        lines.append("")
+        lines.append(f"[{TARGET_NAMES[target]}]")
+        for caution_type, names in listed.items():
+            meaning = TYPE_MEANINGS.get(caution_type)
+            lines.append(f"- {caution_type}{f'({meaning})' if meaning else ''}: {', '.join(names)}")
+        if not_listed:
+            lines.append(f"- 자료에서 찾지 못함: {', '.join(not_listed)}")
+        if failed:
+            lines.append(f"- 약 정보 서버가 느려서 확인하지 못함: {', '.join(failed)}")
+    lines += ["", result["notice"], ASK_NAME]
+    return "\n".join(lines)
+
+
 def type_cautions(drug_type: str, targets: list):
     """약 종류의 대표 성분마다 주의 대상(임부·소아·노인)별 DUR 자료를 돌려준다.
 
