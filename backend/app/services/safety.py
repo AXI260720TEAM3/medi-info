@@ -155,6 +155,20 @@ def _check_cautions(text: str):
     return matched, " ".join(messages)
 
 
+def caution_targets(question: str, profile: str | None = None) -> list:
+    """질문과 프로필에서 주의 대상(임부·수유·소아·노인·복용중)을 찾아 돌려준다. ('임신했는데' -> ['임부'])
+
+    약 종류로 물었을 때 어느 DUR 자료를 볼지 정하려고 쓴다 (drug_type.type_cautions)
+    """
+    text = question.replace(" ", "")
+    targets = [row["target"] for row in _load_caution_keywords() if _matches(row["keyword"], text)]
+    if _child_age(text) is not None:
+        targets.append("소아")
+    if profile in PROFILE_TARGETS:
+        targets.append(profile)
+    return list(dict.fromkeys(targets))
+
+
 def _child_age(text: str):
     """질문에 12살 이하 나이가 있으면 그 나이, 없으면 None."""
     for match in CHILD_AGE_PATTERN.finditer(text):
