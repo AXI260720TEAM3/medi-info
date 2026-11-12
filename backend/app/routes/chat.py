@@ -148,10 +148,47 @@ ELDER_AGE = 65
 NEW_SUBJECT = re.compile(r"아버지|어머니|아빠|엄마|할머니|할아버지|남편|아내|아들|딸|동생|친구|제가|저는|내가|나는")
 
 
-def _drug_cautions_answer(item_name: str, item_seq: str, targets: list[str], from_before: bool) -> str | None:
-    """약 하나의 식약처 DUR 임부·소아·노인 자료로 답을 써요 (AI 안 부름, 내 약 프로필 주의사항과 같은 자료)
-    조회에 실패하면 None (원래 흐름으로)"""
+# 설명서(e약은요·허가정보) 주의사항에서 대상별로 찾을 말 (11/12 팀원 제보: DUR 목록에 없는 약은 "찾지 못했어요"로 끝나
+# 타이레놀의 '12세 미만', 지르텍의 '노인·임부 상의' 같은 설명서 내용을 빠뜨렸어요)
+LABEL_WORDS = {
+    "임부": r"임부|임신|임산부",
+    "소아": r"소아|어린이|영아|유아|신생아|\d+\s*세\s*미만|\d+\s*개월\s*미만",
+    "노인": r"고령|노인",
+}
+LABEL_STRONG = re.compile(r"복용하지\s*마|투여하지\s*말|사용하지\s*마|금기")
+LABEL_SENTENCE_LIMIT = 3
+
+
+def _label_sentences(drug: dict, target: str) -> list[str]:
+    """주의사항(atpn_warn·atpn)에서 대상 말이 든 문장. 금지 문장이 먼저, 최대 3개
+    설명서 문장은 대상을 10개씩 나열해서 길어요: 대상 부분 앞뒤와 문장 끝(상의하십시오/복용하지 마십시오)만 남겨요"""
+    pattern = LABEL_WORDS[target]
+    found = []
+    for field in ("atpn_warn", "atpn"):
+        # 번호 뒤의 점("(7. 임부 …")에서는 나누지 않아요 (허가정보는 번호 목록이 많아요)
+        for sentence in re.split(r"(?<=[^\d][.。])\s+|\n+", str(drug.get(field) or "")):
+            sentence = re.sub(r"\s+", " ", sentence).strip()
+            match = re.search(pattern, sentence)
+            if not match or len(sentence) < 15:   # "5) 고령자" 같은 머리말 조각은 빼요
+                continue
+            if len(sentence) > 150:
+                start = max(0, match.start() - 50)
+                end = match.end() + 50
+                tail = len(sentence) - 40
+                # 대상 부분과 문장 끝이 겹치면 이어서 보여 줘요 (같은 말이 두 번 나오지 않게)
+                sentence = ("…" if start else "") + (sentence[start:] if end >= tail else sentence[start:end] + " … " + sentence[tail:])
+            if sentence not in found:
+                found.append(sentence)
+    found.sort(key=lambda s: not LABEL_STRONG.search(s))
+    return found[:LABEL_SENTENCE_LIMIT]
+
+
+def _drug_cautions_answer(item_name: str, item_seq: str, targets: list[str], from_before: bool,
+                          drug: dict | None = None) -> str | None:
+    """약 하나의 식약처 DUR 임부·소아·노인 자료 + 설명서 주의사항으로 답을 써요 (AI 안 부름)
+    DUR 조회에 실패하면 None (원래 흐름으로)"""
     name = base_name(item_name)
+    label_source = "허가정보 주의사항" if (drug or {}).get("has_easy") is False else "설명서(e약은요)"
     lines = []
     if from_before:
         lines += [f"앞에서 말씀하신 '{', '.join(TARGET_NAMES[t] for t in targets)}'을(를) 기준으로, "
@@ -169,7 +206,14 @@ def _drug_cautions_answer(item_name: str, item_seq: str, targets: list[str], fro
                              + (f": {ingredients}" if ingredients else "") + ".")
             lines += [f"- {c['content']}" for c in found if c.get("content")]
         else:
-            lines.append(f"[{label}] {name}은(는) 식약처 DUR {label} 자료에서 찾지 못했어요. 자료에 없다고 안전하다는 뜻은 아니에요.")
+            lines.append(f"[{label}] {name}은(는) 식약처 DUR {label} 주의 목록에 있는 약은 아니에요.")
+        # 설명서 문장은 DUR 목록에 없을 때만 (DUR이 있으면 그게 더 분명해요)
+        sentences = [] if found else _label_sentences(drug or {}, target)
+        if sentences:
+            lines.append(f"다만 {label_source}에 이런 내용이 있어요:")
+            lines += [f"- {s}" for s in sentences]
+        elif not found:
+            lines.append(f"{label_source}에서도 {label} 관련 내용을 찾지 못했어요. 자료에 없다고 안전하다는 뜻은 아니에요.")
         lines.append(CAUTION_MESSAGES[target])
     return "\n".join(lines)
 
@@ -745,9 +789,13 @@ def ask(
             now_targets.append("노인")
         new_subject = bool(ages) or bool(NEW_SUBJECT.search(question))
         before_targets = [] if new_subject else caution_targets(" ".join(user_utterances[1:]))
-        targets = [t for t in dict.fromkeys(now_targets + before_targets + [profile]) if t in DUR_TARGETS]
+        # 지금 질문에 대상이 있으면 그 대상만 답해요. 없을 때만 앞 대화, 그것도 없으면 프로필 (11/12 팀원 제보:
+        # "어린이가 먹어도 돼?"에 [임신 중] 줄까지 나왔어요)
+        now_dur = [t for t in dict.fromkeys(now_targets) if t in DUR_TARGETS]
+        before_dur = [t for t in dict.fromkeys(before_targets) if t in DUR_TARGETS]
+        targets = now_dur or before_dur or ([profile] if profile in DUR_TARGETS else [])
         if targets:
-            answer = _drug_cautions_answer(item_name, item_seq, targets, from_before=not any(t in DUR_TARGETS for t in now_targets))
+            answer = _drug_cautions_answer(item_name, item_seq, targets, from_before=not now_dur, drug=drug)
             if answer:
                 # 안전 검사가 끝에 같은 상담 문장을 붙이면 (질문에 '임신' 등이 있을 때) 여기서는 빼요
                 warned = (safety.get("message") or "") if level == "warn" else ""

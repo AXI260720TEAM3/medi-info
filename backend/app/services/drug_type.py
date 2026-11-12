@@ -104,7 +104,7 @@ def type_cautions_answer(result: dict) -> str:
             meaning = TYPE_MEANINGS.get(caution_type)
             lines.append(f"- {caution_type}{f'({meaning})' if meaning else ''}: {', '.join(names)}")
         if not_listed:
-            lines.append(f"- 자료에서 찾지 못함: {', '.join(not_listed)}")
+            lines.append(f"- 식약처 DUR 주의 목록에 없는 성분: {', '.join(not_listed)}")
         if failed:
             lines.append(f"- 약 정보 서버가 느려서 확인하지 못함: {', '.join(failed)}")
     lines += ["", result["notice"], ASK_NAME]
