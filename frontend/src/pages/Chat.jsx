@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link, useLocation, useOutletContext } from 'react-router'
+import { Link, useLocation, useNavigate, useOutletContext } from 'react-router'
 import ChatDrugChips, { MAX_DRUGS } from '../components/ChatDrugChips'
 import ChatScan from '../components/ChatScan'
 import MedCheckResult from '../components/MedCheckResult'
@@ -63,7 +63,7 @@ export default function Chat() {
   const [pendingQuestion, setPendingQuestion] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const bottomRef = useRef(null)
+  const threadRef = useRef(null)   // 대화창 (11/12: 대화창 안에서만 스크롤)
   const requestInFlight = useRef(false)
 
   // 먹는 사람: 로그인하고 건강정보에 동의했으면 내 약 프로필을 불러오고, 바꾸면 프로필에도 저장해요
@@ -89,6 +89,21 @@ export default function Chat() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ target: next }),
     }).catch(() => {})   // 저장이 안 돼도 이 화면의 답에는 바로 쓰여요
+  }
+
+  // [새 대화]: 대화와 담은 약을 비워요. 먹는 사람은 그대로 (사람 설정이라 대화가 바뀌어도 같을 때가 많아요)
+  // 주소의 ?item_seq=…도 지워요 (새로고침하면 그 약이 다시 담기지 않게)
+  const navigate = useNavigate()
+  function resetChat() {
+    if (requestInFlight.current) return
+    setMessages([])
+    setDrugs([])
+    setCurrentSeq(null)
+    setChipNotice('')
+    setError('')
+    setDraft('')
+    setBand({ key: '', answer: null })
+    if (window.location.search) navigate('/chat', { replace: true })
   }
 
   // 답 아래의 "먹는 사람을 ○○으로 바꿀까요?": 바꾸거나 그대로를 누르면 그 답에서는 닫아요
@@ -118,7 +133,9 @@ export default function Chat() {
   }, [drugs, listKey])
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+    // 예전엔 scrollIntoView로 페이지 전체를 굴려서, 답이 쌓일수록 위의 '지금 답의 기준'·약 목록이 화면 밖으로 밀렸어요
+    const thread = threadRef.current
+    if (thread) thread.scrollTo({ top: thread.scrollHeight, behavior: 'smooth' })
   }, [messages, pendingQuestion, error])
 
   // 질문 보내기. list·current를 직접 받아요: 후보 칩을 누른 직후처럼 상태가 아직 안 바뀐 때도 새 목록으로 보내려고
@@ -329,6 +346,14 @@ export default function Chat() {
         <span className="muted chat-basis-note">
           {canSaveWho ? '내 약의 복용자 프로필과 같아요' : '로그인하고 건강정보에 동의하면 내 약 프로필에도 저장돼요'}
         </span>
+        <button
+          type="button"
+          className="btn btn-secondary chat-reset"
+          onClick={resetChat}
+          disabled={loading || (messages.length === 0 && drugs.length === 0)}
+        >
+          새 대화
+        </button>
       </div>
 
       {/* 빨간 자동 알림: 묻지 않아도, 함께 먹으면 안 되는 짝만 (주의는 물었을 때만) */}
@@ -336,7 +361,7 @@ export default function Chat() {
         <MedCheckResult answer={band.answer} levels={['block']} emptyText={null} showCount={false} showNote={false} />
       )}
 
-      <div className="card chat-thread" aria-label="채팅 대화">
+      <div className="card chat-thread" aria-label="채팅 대화" ref={threadRef}>
         {messages.length === 0 && !pendingQuestion && (
           <p className="muted">의약품의 효능, 복용방법, 주의사항 등을 질문해 보세요.</p>
         )}
@@ -422,7 +447,6 @@ export default function Chat() {
           <div className="chat-msg is-user">{pendingQuestion}</div>
         )}
         {loading && <p className="muted" role="status">답변을 만드는 중이에요…</p>}
-        <div ref={bottomRef} />
       </div>
 
       {error && (
