@@ -57,6 +57,7 @@ function MedHistory({ meds }) {
                 <th>약 이름</th>
                 <th>시작일</th>
                 <th>하루 횟수</th>
+                <th>복용 기간</th>
                 <th>중단일</th>
                 <th>관리</th>
               </tr>
@@ -67,6 +68,11 @@ function MedHistory({ meds }) {
                   <td>{history.item_name}</td>
                   <td>{history.start_date}</td>
                   <td>{history.times_per_day ?? '미입력'}</td>
+                  <td>
+                    {history.duration_days == null
+                      ? '기간 지정 없음'
+                     : `${history.duration_days}일`}
+                  </td>
                   <td>{history.stopped_at ?? '미기록'}</td>
                   <td>
                  <MedHistoryActions

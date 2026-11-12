@@ -32,6 +32,21 @@ services:
       db:
         condition: service_healthy
 
+  push_worker:
+    build: ./backend
+    init: true
+    env_file: .env
+    environment:
+      DB_HOST: db
+    volumes:
+      - ./backend:/app
+    command: python -m app.services.push_worker
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+
   frontend:
     build: ./frontend
     init: true

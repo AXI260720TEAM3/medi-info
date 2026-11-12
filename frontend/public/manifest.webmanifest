@@ -1,0 +1,19 @@
+{
+  "id": "/",
+  "name": "약바로 - 의약품 정보",
+  "short_name": "약바로",
+  "description": "의약품 정보와 복용이력, 복약 알림 서비스",
+  "lang": "ko-KR",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

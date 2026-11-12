@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from .routes import health, drugs, chat, together, auth, my_meds, pharmacy, admin, interactions, med_history
 from .routes import med_reminder
+from .routes import push_subscription
 from .services.privacy import purge_old_chat_logs
 
 
@@ -27,6 +28,7 @@ app.include_router(auth.router)
 app.include_router(my_meds.router)
 app.include_router(med_history.router)
 app.include_router(med_reminder.router)
+app.include_router(push_subscription.router)
 app.include_router(pharmacy.router)
 app.include_router(admin.router)
 app.include_router(interactions.router)

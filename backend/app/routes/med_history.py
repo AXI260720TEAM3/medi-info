@@ -27,12 +27,14 @@ class HistoryCreateRequest(BaseModel):
     med_id: int = Field(gt=0)
     start_date: date
     times_per_day: int | None = Field(default=None, ge=1, le=24)
+    duration_days: int | None = Field(default=None, ge=1)
 
 
 # 기존 복용 기록을 수정할 때 받는 정보
 class HistoryUpdateRequest(BaseModel):
     start_date: date
     times_per_day: int | None = Field(default=None, ge=1, le=24)
+    duration_days: int | None = Field(default=None, ge=1)
 
 
 # 복용을 중단할 때 받는 정보
@@ -58,6 +60,7 @@ def create_history(
             data.med_id,
             data.start_date,
             data.times_per_day,
+            data.duration_days,
         )
     except MedNotRegisteredError:
         raise HTTPException(
@@ -84,6 +87,7 @@ def change_history(
             history_id,
             data.start_date,
             data.times_per_day,
+            data.duration_days,
         )
     except HistoryNotFoundError:
         raise HTTPException(

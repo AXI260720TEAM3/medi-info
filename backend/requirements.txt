@@ -6,3 +6,4 @@ httpx==0.28.1
 pwdlib[bcrypt]==0.3.1
 PyJWT==2.15.1
 holidays==0.108
+pywebpush==2.5.0

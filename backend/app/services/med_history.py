@@ -27,7 +27,8 @@ def list_use_history(user_id: int) -> list[dict]:
         rows = db.execute(
             text("""
                 SELECT history_id, item_seq, item_name,
-                       start_date, times_per_day, stopped_at
+                       start_date, times_per_day,
+                       duration_days, stopped_at
                 FROM med_use_history
                 WHERE user_id = :user_id
                 ORDER BY start_date DESC, history_id DESC
@@ -44,6 +45,7 @@ def add_use_history(
     med_id: int,
     start_date: date,
     times_per_day: int | None,
+    duration_days: int | None = None,
 ) -> dict:
     with SessionLocal() as db:
         # 내 약에 등록된 약인지 확인
@@ -60,7 +62,7 @@ def add_use_history(
         if med is None:
             raise MedNotRegisteredError()
 
-        # 같은 약의 진행 중인 복용 기록이 있는지 확인
+        # 복용 기간이 겹치는 진행 중 기록 확인
         exists = db.execute(
             text("""
                 SELECT 1
@@ -68,8 +70,17 @@ def add_use_history(
                 WHERE user_id = :user_id
                   AND item_seq = :item_seq
                   AND stopped_at IS NULL
+                  AND (
+                      duration_days IS NULL
+                      OR start_date + (duration_days - 1)
+                          >= :start_date
+                  )
             """),
-            {"user_id": user_id, "item_seq": med["item_seq"]},
+            {
+                "user_id": user_id,
+                "item_seq": med["item_seq"],
+                "start_date": start_date,
+            },
         ).first()
 
         if exists:
@@ -79,14 +90,15 @@ def add_use_history(
             text("""
                 INSERT INTO med_use_history (
                     user_id, item_seq, item_name,
-                    start_date, times_per_day
+                    start_date, times_per_day, duration_days
                 )
                 VALUES (
                     :user_id, :item_seq, :item_name,
-                    :start_date, :times_per_day
+                    :start_date, :times_per_day, :duration_days
                 )
                 RETURNING history_id, item_seq, item_name,
-                          start_date, times_per_day, stopped_at
+                          start_date, times_per_day,
+                          duration_days, stopped_at
             """),
             {
                 "user_id": user_id,
@@ -94,6 +106,7 @@ def add_use_history(
                 "item_name": med["item_name"],
                 "start_date": start_date,
                 "times_per_day": times_per_day,
+                "duration_days": duration_days,
             },
         ).mappings().one()
 
@@ -102,12 +115,13 @@ def add_use_history(
     return dict(row)
 
 
-# 3. 복용 시작일과 횟수 수정
+# 3. 복용 시작일, 횟수, 기간 수정
 def update_use_history(
     user_id: int,
     history_id: int,
     start_date: date,
     times_per_day: int | None,
+    duration_days: int | None = None,
 ) -> dict:
     with SessionLocal() as db:
         history = db.execute(
@@ -132,17 +146,20 @@ def update_use_history(
             text("""
                 UPDATE med_use_history
                 SET start_date = :start_date,
-                    times_per_day = :times_per_day
+                    times_per_day = :times_per_day,
+                    duration_days = :duration_days
                 WHERE history_id = :history_id
                   AND user_id = :user_id
                 RETURNING history_id, item_seq, item_name,
-                          start_date, times_per_day, stopped_at
+                          start_date, times_per_day,
+                          duration_days, stopped_at
             """),
             {
                 "history_id": history_id,
                 "user_id": user_id,
                 "start_date": start_date,
                 "times_per_day": times_per_day,
+                "duration_days": duration_days,
             },
         ).mappings().one()
 
@@ -167,7 +184,8 @@ def stop_use_history(
                   AND stopped_at IS NULL
                   AND start_date <= :stopped_at
                 RETURNING history_id, item_seq, item_name,
-                          start_date, times_per_day, stopped_at
+                          start_date, times_per_day,
+                          duration_days, stopped_at
             """),
             {
                 "history_id": history_id,
