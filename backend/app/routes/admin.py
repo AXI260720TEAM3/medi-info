@@ -13,6 +13,7 @@ from sqlalchemy import text
 from ..config import OLLAMA_NUM_CTX, OLLAMA_URL, OPS_TOKEN, OPS_URL
 from ..database import SessionLocal
 from ..deps import admin_host_only, require_admin
+from ..services.auth import verify_password
 from ..services.chat_common import MODEL
 from ..services.safety import check_safety
 from ..services.synonym import find_symptom
@@ -34,6 +35,11 @@ FILTERS = {
 }
 
 
+def _like(q):
+    """검색어를 LIKE 값으로. % _ 는 LIKE에서 특별한 글자라 그대로 찾도록 막아요"""
+    return "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+
+
 @router.get("/chat-logs")
 def chat_logs(
     only: Literal["all", "blocked", "ask_drug", "check_failed", "reported", "interaction", "unclassified"] = "all",
@@ -50,8 +56,7 @@ def chat_logs(
     if hide_test:
         base.append("NOT is_test")
     if q.strip():
-        # % _ 는 LIKE에서 특별한 글자라 그대로 찾도록 막아요
-        params["q"] = "%" + q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        params["q"] = _like(q.strip())
         base.append("(question ILIKE :q OR item_name ILIKE :q)")
     base_where = " AND ".join(base)
     counts_sql = ", ".join(f"count(*) FILTER (WHERE {cond}) AS {name}" for name, cond in FILTERS.items())
@@ -357,3 +362,86 @@ def ops_traffic():
 @router.get("/ops/deployments")
 def ops_deployments():
     return _ops("GET", "/deployments")
+
+
+# 계정 탭: 사용자 목록과 관리자 승격·해제
+# - 내 권한은 바꿀 수 없어요. 바꾸는 사람은 늘 관리자로 남으니, 관리자가 0명이 되는 일이 없어요
+# - 바꿀 때 내 비밀번호를 한 번 더 받아요. 자리를 비운 사이 누가 화면을 만져도 권한은 못 바꿔요
+# - role은 요청마다 DB에서 읽어서(deps.get_current_user), 바꾸면 그 사람의 다음 요청부터 바로 적용돼요
+USER_ROLES = {"all": "TRUE", "admin": "role = 'admin'", "user": "role = 'user'"}
+
+
+def _mask_email(email):
+    """ab***@gmail.com: 목록에서 계정을 구별할 만큼만 보여 줘요"""
+    if not email or "@" not in email:
+        return None
+    name, domain = email.split("@", 1)
+    return f"{name[:2]}***@{domain}"
+
+
+@router.get("/users")
+def users(
+    q: str = Query("", max_length=50),
+    role: Literal["all", "admin", "user"] = "all",
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    me: dict = Depends(require_admin),
+):
+    params = {"limit": limit, "offset": offset}
+    base = "TRUE"
+    if q.strip():
+        params["q"] = _like(q.strip())
+        base = "(login_id ILIKE :q OR display_name ILIKE :q)"
+    counts_sql = ", ".join(f"count(*) FILTER (WHERE {cond}) AS {name}" for name, cond in USER_ROLES.items())
+    with SessionLocal() as db:
+        counts = db.execute(text(f"SELECT {counts_sql} FROM app_user WHERE {base}"), params).mappings().one()
+        rows = db.execute(text(f"""
+            SELECT user_id, login_id, display_name, email, role, created_at, last_login_at
+            FROM app_user WHERE {base} AND {USER_ROLES[role]}
+            ORDER BY (role = 'admin') DESC, user_id DESC
+            LIMIT :limit OFFSET :offset
+        """), params).mappings().all()
+        history = db.execute(text("""
+            SELECT target_login_id, changed_by_login_id, old_role, new_role, created_at
+            FROM role_change_log ORDER BY change_id DESC LIMIT 10
+        """)).mappings().all()
+    iso = lambda value: value.isoformat() if value else None
+    return {
+        "me": me["user_id"],
+        "total": counts[role],
+        "counts": dict(counts),
+        "items": [{**row, "email": _mask_email(row["email"]), "created_at": iso(row["created_at"]),
+                   "last_login_at": iso(row["last_login_at"])} for row in rows],
+        "history": [{**row, "created_at": iso(row["created_at"])} for row in history],
+    }
+
+
+class RoleChange(BaseModel):
+    role: Literal["user", "admin"]
+    password: str = Field(min_length=1, max_length=128)   # 바꾸는 관리자 본인의 비밀번호
+
+
+@router.patch("/users/{user_id}/role")
+def change_role(user_id: int, data: RoleChange, me: dict = Depends(require_admin)):
+    if user_id == me["user_id"]:
+        raise HTTPException(status_code=400, detail="내 권한은 여기서 바꿀 수 없어요. 다른 관리자에게 부탁해 주세요.")
+    with SessionLocal() as db:
+        my_hash = db.execute(text("SELECT password_hash FROM app_user WHERE user_id = :id"), {"id": me["user_id"]}).scalar()
+        if not my_hash or not verify_password(data.password, my_hash):
+            raise HTTPException(status_code=403, detail="비밀번호가 맞지 않아요.")
+        # FOR UPDATE: 두 관리자가 동시에 같은 계정을 바꿔도 기록이 어긋나지 않게 차례로 처리해요
+        target = db.execute(text("SELECT login_id, role FROM app_user WHERE user_id = :id FOR UPDATE"),
+                            {"id": user_id}).mappings().first()
+        if target is None:
+            raise HTTPException(status_code=404, detail="없는 계정이에요.")
+        if target["role"] == data.role:
+            return {"user_id": user_id, "role": data.role, "changed": False}
+        db.execute(text("UPDATE app_user SET role = :role WHERE user_id = :id"), {"role": data.role, "id": user_id})
+        db.execute(text("""
+            INSERT INTO role_change_log (target_user_id, target_login_id, changed_by_user_id, changed_by_login_id, old_role, new_role)
+            VALUES (:target, :target_login, :by, :by_login, :old, :new)
+        """), {"target": user_id, "target_login": target["login_id"], "by": me["user_id"], "by_login": me["login_id"],
+               "old": target["role"], "new": data.role})
+        db.commit()
+    logging.warning("관리자 %s: %s 권한 %s → %s", me["login_id"], target["login_id"], target["role"], data.role)
+    return {"user_id": user_id, "role": data.role, "changed": True}
