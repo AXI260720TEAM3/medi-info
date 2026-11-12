@@ -18,9 +18,11 @@ def name_variants(name):
     return list(dict.fromkeys(variants))
 
 def find_drug(question):
-    name = parse_query(question)["drug_name"]
+    parsed = parse_query(question)
+    name = parsed["drug_name"]
     if not name:
-        return {"status": "none"}
+        # 약 이름이 없어도 AI가 뽑은 성분·증상은 돌려줘요. AI 질문이 되묻기 전에 써요 (11/12, routes/chat.py)
+        return {"status": "none", "parsed": parsed}
 
     variants = name_variants(name)
     fixed = fix_drug_typo(name)

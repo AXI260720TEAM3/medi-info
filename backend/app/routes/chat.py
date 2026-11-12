@@ -30,7 +30,7 @@ from ..services.chat_analysis import analyze_question
 from ..services.chat_answer import _answer_from_official_info
 from ..services.chat_drug import find_chat_drug, get_chat_drug_detail
 from ..services.drug_api import search_by_efcy
-from ..services.drug_search import search_merged
+from ..services.drug_search import search_by_ingredient, search_merged
 from ..services.privacy import mask_personal
 from ..services.dur_api import check_interaction, get_ingredients
 from ..services.query_ai import parse_query
@@ -69,6 +69,7 @@ ALREADY_TAKEN = re.compile(r"먹었|먹은|먹여버|먹였|삼켰|마셨|복용
 REDIRECT_DRUG_LIMIT = 5
 REDIRECT_LIST_NOTE = "효능에 이 증상이 적힌 약의 일부예요. 순서는 추천이 아니에요."
 REDIRECT_SEARCH_NOTE = "약 찾기에서 증상이나 약 이름으로 약 정보를 찾아볼 수 있어요."
+INGREDIENT_PICK_LIMIT = 10
 
 
 class ChatTurn(BaseModel):
@@ -336,6 +337,45 @@ def ask(
         log_meta["question_type"] = "약확인"
         return reply(answer, risk=risk)
 
+    def _by_ingredient_or_symptom(question: str, parsed: dict, profile: str | None):
+        """성분 이름 → 그 성분이 든 제품 후보 버튼 / 증상 → 그 증상에 쓰는 약 목록. 둘 다 없으면 None
+        약을 골라 주지는 않아요. 목록은 효능에 그 말이 적힌 약의 일부이고, 추천 거절(redirect)과 같은 안내를 달아요"""
+        ingredient = (parsed.get("ingredient") or "").strip()
+        if ingredient:
+            try:
+                _, items, _, _ = search_by_ingredient(ingredient, size=INGREDIENT_PICK_LIMIT)
+            except httpx.HTTPError:
+                items = []
+            if items:
+                extras["candidates"] = [_ref(c) for c in items]
+                return ask_which_drug(f"{ingredient} 성분이 든 약이 여러 개예요. 어느 약인지 골라 주세요.")
+
+        symptom = find_symptom(question) or (parsed.get("symptom") or "").strip()
+        if not symptom:
+            return None
+        log_meta["question_type"] = "증상"
+        # 임부·소아·노인처럼 주의 대상이면 목록 없이 상담 안내만 (추천 거절과 같은 규칙)
+        if caution_targets(question, profile):
+            result = reply(
+                f"'{symptom}'에 쓰는 약은 여러 가지인데, 주의가 필요한 분이라 약을 목록으로 보여 드리지 않아요. "
+                "드시려는 약 이름을 알려 주시거나, 약사와 먼저 상담해 주세요.",
+                source="안내", risk=risk,
+            )
+            result["items"], result["items_note"] = [], REDIRECT_SEARCH_NOTE
+            return result
+        try:
+            _, items = search_by_efcy(symptom, size=REDIRECT_DRUG_LIMIT)
+        except httpx.HTTPError:
+            items = []
+        result = reply(
+            f"'{symptom}'에 쓰는 약을 찾아봤어요. 약 이름을 알려 주시면 그 약의 공식 정보로 답할게요. "
+            "아래 약을 누르면 자세한 정보를 볼 수 있어요.",
+            source=SOURCE, risk=risk,
+        )
+        result["items"] = [{"item_seq": i["item_seq"], "item_name": i["item_name"], "entp_name": i["entp_name"]} for i in items]
+        result["items_note"] = REDIRECT_LIST_NOTE if items else REDIRECT_SEARCH_NOTE
+        return result
+
     def emergency_reply(answer: str, source: str | None = None):
         result = {**make_reply(
             answer,
@@ -532,6 +572,12 @@ def ask(
     if target_item_seq is None and (drug_action == "clarify" or (
         drug_action == "keep" and not current_seq
     )):
+        # 되묻기 전에, 질문 분석(find_drug)이 뽑은 성분·증상을 약 찾기 화면(/api/drugs/smart)처럼 써요 (11/12)
+        # 예전에는 약 이름 칸만 보고 버려서 "아스피린 효능이 뭐예요?", "머리가 지끈거려요"도 "어떤 약이에요?"로 끝났어요
+        parsed = named.get("parsed") or {}
+        found = _by_ingredient_or_symptom(question, parsed, profile)
+        if found:
+            return found
         return ask_which_drug(
             "어떤 약에 대한 질문인지 확인이 필요해요. "
             "정확한 제품명을 알려주시거나 제품을 선택해 주세요."

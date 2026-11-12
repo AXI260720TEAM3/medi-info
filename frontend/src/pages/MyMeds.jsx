@@ -126,7 +126,8 @@ function MyMeds() {
     <MedReminder />
     </div>
     <aside className="mymeds-side">
-      {meds.length > 0 && <MedProfile checkKey={checkKey} onChange={() => setCheckKey(checkKey + 1)} />}
+      {/* 약이 없어도 늘 보여요. 프로필은 AI 질문 답에도 쓰여서, 약을 다 지운 뒤에도 바꿀 수 있어야 해요 (11/12) */}
+      <MedProfile checkKey={checkKey} onChange={() => setCheckKey(checkKey + 1)} />
     </aside>
     </div>
   </>)
