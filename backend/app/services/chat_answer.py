@@ -46,11 +46,19 @@ PERSONAL_APPROVAL = re.compile(
 DOSE_INTENT = re.compile(
     r"복용량|용량|용법|몇\s*(?:알|정|회|번)|"
     r"(?:하루|1일|일일)\s*몇|얼마나\s*(?:먹|복용)|"
-    r"어떻게\s*(?:먹|복용)|복용\s*횟수|복용\s*간격",
+    r"어떻게\s*(?:먹|복용)|복용\s*횟수|복용\s*간격|"
+    r"몇\s*시간\s*(?:마다|간격|후에?|지나)|최대\s*(?:몇|용량|복용)",   # 11/12: "몇 시간마다 먹어?", "하루 최대 몇 알?"
     re.IGNORECASE,
 )
 
 HAN_PATTERN = re.compile(r"[\u4e00-\u9fff]")
+
+# \ube48\uc18d\u00b7\uc2dd\uc0ac \ub54c \uc9c8\ubb38 (11/12): "\uac8c\ubcf4\ub9b0 \ube48\uc18d\uc5d0 \uba39\uc5b4\ub3c4 \ub3fc?"\uc5d0 AI \ub2f5\uc774 \ub450 \ubc88 \ub9c9\ud600 "\ud310\ub2e8\ud558\uae30 \uc5b4\ub824\uc6cc\uc694"\ub9cc \ub098\uac14\uc5b4\uc694
+# \uacf5\uc2dd \uc790\ub8cc\uc5d0 "\uacf5\ubcf5\uc2dc\ub97c \ud53c\ud574 \ubcf5\uc6a9"\uc774 \uc788\ub294\ub370\ub3c4\uc694. \ucabc\uac1c\uae30 \uc9c8\ubb38\ucc98\ub7fc \uacf5\uc2dd \ubb38\uc7a5\uc744 \ucf54\ub4dc\uac00 \ucc3e\uc544 \uadf8\ub300\ub85c \ubcf4\uc5ec \uc918\uc694
+MEAL_QUESTION = re.compile(r"\ube48\s*\uc18d|\uacf5\ubcf5|\uc2dd\uc804|\uc2dd\ud6c4|\uc2dd\uc0ac|\ubc25\s*(?:\uba39\uae30\s*)?(?:\uc804|\ud6c4|\uba39\uace0|\uc548\s*\uba39)|\uc18d\s*\uc4f0")
+MEAL_WORDS = re.compile(r"\uacf5\ubcf5|\ube48\s*\uc18d|\uc2dd\uc804|\uc2dd\ud6c4|\uc2dd\uc0ac|\uc74c\uc2dd")
+MEAL_FIELDS = ("use_method", "atpn_warn", "atpn", "intrc")
+MEAL_NOTE_MAX = 2
 
 
 # AI 답이 두 번 다 검증에 걸렸을 때 (11/12): 빈손("답변을 표시하지 않았어요") 대신 질문한 항목의 식약처 원문을 그대로 보여 줘요
@@ -68,6 +76,33 @@ def _official_text(drug: dict, category: str) -> str | None:
     if len(text) > OFFICIAL_TEXT_LIMIT:
         text = text[:OFFICIAL_TEXT_LIMIT].rstrip() + " …(전체 내용은 약 상세 화면에서 볼 수 있어요)"
     return f"{OFFICIAL_TEXT_LEAD}\n\n[{category}] {text}"
+
+
+def _dose_answer(drug: dict) -> str | None:
+    """용량을 물은 일반 질문의 답: 공식 복용방법 문장 그대로 (11/12)
+    AI가 "1회 1정 1일 3회까지"를 "하루에 1정까지"로 바꿔 썼는데, 숫자 1이 자료에 있어서 검사를 지나갔어요.
+    숫자는 뜻을 바꾸기 쉬워서 AI에게 맡기지 않아요. 원문이 없으면 None (원래대로 AI)"""
+    text = re.sub(r"\n\s*\n+", "\n", re.sub(r"[ \t]+", " ", str(drug.get("use_method") or ""))).strip()
+    if not text:
+        return None
+    if len(text) > OFFICIAL_TEXT_LIMIT:
+        text = text[:OFFICIAL_TEXT_LIMIT].rstrip() + " …(전체 내용은 약 상세 화면에서 볼 수 있어요)"
+    return f"{drug['item_name']}의 식약처 공식 복용방법이에요.\n\n{text}"
+
+
+def _meal_answer(drug: dict) -> str:
+    """빈속·식사 때 질문의 답: 공식 자료에서 공복·식후 문장을 찾아 그대로. 없으면 없다고 말해요"""
+    text = "\n".join(str(drug.get(field) or "") for field in MEAL_FIELDS)
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+|\n+", text) if MEAL_WORDS.search(s)]
+    notes = list(dict.fromkeys(sentences))[:MEAL_NOTE_MAX]
+    if not notes:
+        return (f"{drug['item_name']}의 식약처 공식 자료에는 빈속(공복)이나 식사와 관련된 안내가 없어요. "
+                "속이 불편하거나 먹는 때가 궁금하면 약사와 상담해 주세요.")
+    return "\n".join(
+        [f"{drug['item_name']}의 식약처 공식 자료에 이런 내용이 있어요."]
+        + [f"- {note}" for note in notes]
+        + ["", "먹는 때가 궁금하면 약사와 상담해 주세요."]
+    )
 
 
 def _evidence(drug: dict, categories: list[str]) -> str:
@@ -187,6 +222,16 @@ def _answer_from_official_info(
                 "현재 확인한 공식 자료에 명확한 안내가 없어 판단하기 어려워요. "
                 "임의로 나눠 복용하기 전에 의사 또는 약사에게 확인해 주세요."
             )
+
+    # 빈속·식사 때 질문은 공식 문장을 그대로 (AI 안 부름)
+    if MEAL_QUESTION.search(question):
+        return _meal_answer(drug)
+
+    # 용량을 물은 일반 질문은 공식 복용방법을 그대로 (AI 안 부름). 개인 질문("7살인데 몇 알?")은 아래 원래 흐름
+    if not personal and DOSE_INTENT.search(question):
+        answer = _dose_answer(drug)
+        if answer:
+            return answer
 
     if personal:
         # 개인 질문은 관련 용법 및 주의·상담 항목을 항상 함께 참고합니다.
