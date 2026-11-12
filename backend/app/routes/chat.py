@@ -39,7 +39,7 @@ from ..deps import get_optional_user
 from ..services.my_meds import get_profile
 from ..services.safety import check_safety, add_disclaimer, caution_targets
 from ..services.drug_type import DUR_TARGETS, find_drug_type, type_cautions, type_cautions_answer
-from ..services.synonym import find_symptom
+from ..services.synonym import common_symptoms, find_symptom
 
 router = APIRouter(prefix="/api", tags=["Chat"])
 
@@ -70,6 +70,10 @@ REDIRECT_DRUG_LIMIT = 5
 REDIRECT_LIST_NOTE = "효능에 이 증상이 적힌 약의 일부예요. 순서는 추천이 아니에요."
 REDIRECT_SEARCH_NOTE = "약 찾기에서 증상이나 약 이름으로 약 정보를 찾아볼 수 있어요."
 INGREDIENT_PICK_LIMIT = 10
+# 약 목록을 보여 줘도 되는 증상: 증상 사전의 흔한 증상 + 감기류 (11/12)
+# 그 밖의 증상(흉통·호흡곤란 등)은 약보다 진료가 먼저일 수 있어서 목록 없이 예전처럼 되물어요
+# ("가슴이 조이는 느낌이에요"가 '흉통' 약 목록으로 나가던 것을 시험에서 발견)
+LISTABLE_SYMPTOMS_EXTRA = {"감기", "코감기", "목감기", "재채기", "비염"}
 
 
 class ChatTurn(BaseModel):
@@ -351,7 +355,7 @@ def ask(
                 return ask_which_drug(f"{ingredient} 성분이 든 약이 여러 개예요. 어느 약인지 골라 주세요.")
 
         symptom = find_symptom(question) or (parsed.get("symptom") or "").strip()
-        if not symptom:
+        if not symptom or symptom not in common_symptoms() | LISTABLE_SYMPTOMS_EXTRA:
             return None
         log_meta["question_type"] = "증상"
         # 임부·소아·노인처럼 주의 대상이면 목록 없이 상담 안내만 (추천 거절과 같은 규칙)
