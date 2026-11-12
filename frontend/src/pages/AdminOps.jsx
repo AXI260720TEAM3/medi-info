@@ -79,7 +79,7 @@ function ResourcePanel() {
       {data && (<>
         {!data.metrics && <p><Badge type="caution">사용량 없음</Badge> metrics-server에서 값을 못 받았어요. k3s를 켠 직후라면 1분쯤 뒤에 다시 보세요.</p>}
         <h3>이 PC (노드)</h3>
-        <p className="muted">WSL 전체 값이에요. k8s 밖의 Ollama와 automachine도 같은 WSL을 나눠 써요.</p>
+        <p className="muted">WSL 전체 값이에요.</p>
         <div className="table-card">
           <table className="med-table">
             <thead><tr><th>노드</th><th>CPU</th><th>메모리</th></tr></thead>
