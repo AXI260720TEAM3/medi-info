@@ -81,7 +81,7 @@ def flow_of(res):
     if "약보다 진료가 먼저일 수 있는 증상" in answer:
         return "care"
     if res.get("source") == "식품의약품안전처 DUR":
-        return "type_caution"
+        return "drug_caution" if res.get("item_seq") else "type_caution"   # 약 하나의 DUR 자료 / 약 종류의 대표 성분 자료
     if res.get("items") and not res.get("item_seq"):
         return "symptom"
     if answer.startswith(OFFICIAL_TEXT):

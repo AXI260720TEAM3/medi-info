@@ -12,6 +12,7 @@
 # ============================================================
 
 import json
+import logging
 import re
 
 from fastapi import HTTPException
@@ -256,7 +257,10 @@ JSON 외에 설명, 마크다운, 코드 블록을 출력하지 마세요.
             action = "clarify"
             resolved = question
     if action == "clarify" and missing == "none":
-        raise HTTPException(status_code=503, detail="AI 질문 분석 결과가 모순되어 다시 확인이 필요해요.")
+        # 되물을 정보가 없다(missing none)면서 되묻기(clarify)를 고르는 일이 앞 대화가 있을 때 생겨요 (11/12 실제 대화:
+        # 약을 고른 뒤 같은 질문을 다시 보내면 503). 되물을 게 없으니 설명으로 진행해요. 답은 뒤의 검증을 그대로 거쳐요
+        logging.warning("AI 분석 모순(clarify + missing none) → explain으로 진행")
+        action = "explain"
     return {
         "risk": risk,
         "category": category,
