@@ -120,6 +120,10 @@ for row in rows:
 
     got = flow_of(res)
     ok = got == row["expected_flow"] or got in ALSO_OK.get(row["expected_flow"], ())
+    # must 칸: 답에 꼭 들어가야 할 말 (답의 종류만 맞고 내용이 틀린 것을 잡아요. 예: 80세인데 '어린이'로 답함)
+    must = (row.get("must") or "").strip()
+    if ok and must and must not in res.get("answer", ""):
+        ok, got = False, f"{got}(내용: '{must}' 없음)"
     official += got == "official_text"
     passed += ok
     times.append(elapsed)
