@@ -75,7 +75,7 @@ function Layout() {
     <footer className="footer">
       <div className="footer-inner">
         <span>식약처 e약은요와 의약품 허가정보를 보여드려요. 진단이나 처방이 아니에요.</span>
-        <span>로컬 AI · 질문이 PC 밖으로 나가지 않아요 · <Link to="/privacy">개인정보 처리방침</Link></span>
+        <span><Link to="/privacy">개인정보 처리방침</Link></span>
       </div>
     </footer>
   </>)
