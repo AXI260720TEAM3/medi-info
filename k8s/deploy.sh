@@ -75,7 +75,10 @@ mkdir -p backups
 # (처음 만드는 DB는 db-init이 자동으로 다 실행해요. 02_schema는 처음 한 번용이라 여기서 빼요)
 if kubectl -n $NS get pod db-0 >/dev/null 2>&1; then
   kubectl -n $NS wait --for=condition=ready pod/db-0 --timeout=120s >/dev/null
-  for f in db/init/0[3-9]_*.sql; do
+  # 번호가 두 자리면 모두 (10_, 11_ …도). 예전엔 0[3-9]만 봐서 10_med_reminder_label.sql이 빠져
+  # 복약 알림 목록이 "불러오지 못했어요"(column alarm_label does not exist)였어요 (11/12)
+  for f in db/init/[0-9][0-9]_*.sql; do
+    case "$(basename "$f")" in 0[0-2]_*) continue ;; esac
     kubectl -n $NS exec -i db-0 -- sh -c 'psql -q -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < "$f"
     echo "DB 추가 SQL: $f"
   done

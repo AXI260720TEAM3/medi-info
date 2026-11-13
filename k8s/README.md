@@ -152,7 +152,7 @@ kubectl -n medi-info logs job/purge-now
 
 ## DB에 나중에 더한 SQL
 
-`db/init/02_schema.sql`은 DB를 처음 만들 때 한 번만 돌아요. 그 뒤에 더한 `03_`·`04_`… 파일은 **여러 번 실행해도 안전하게**(`IF NOT EXISTS`) 쓰고,
+`db/init/02_schema.sql`은 DB를 처음 만들 때 한 번만 돌아요. 그 뒤에 더한 `03_`·`04_`…(`10_` 이상 두 자리 번호 모두) 파일은 **여러 번 실행해도 안전하게**(`IF NOT EXISTS`) 쓰고,
 `deploy.sh`가 배포할 때마다 이미 있는 DB에 새 백엔드보다 먼저 넣어요. compose나 팀원 PC의 DB는 그 파일을 한 번 직접 실행하면 돼요.
 
 | 파일 | 내용 |
