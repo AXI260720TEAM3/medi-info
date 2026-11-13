@@ -15,6 +15,8 @@ import logging
 import re
 import time
 
+from fastapi import HTTPException
+
 from .chat_common import (
     SOURCE,
     DRUG_FIELDS,
@@ -51,7 +53,9 @@ DOSE_INTENT = re.compile(
     re.IGNORECASE,
 )
 
-HAN_PATTERN = re.compile(r"[\u4e00-\u9fff]")
+# 한자 + 히라가나·가타카나 (11/13 탐색 시험: AI 답의 "아세트아미노펜"·"클라리틴" 일부가 일본 글자로 나왔는데 검사를 통과했어요).
+# 사유 글("한자가 포함된 표현")은 관리자 통계에 쓰여 그대로 둬요
+HAN_PATTERN = re.compile(r"[\u4e00-\u9fff\u3040-\u30ff]")
 
 # \ube48\uc18d\u00b7\uc2dd\uc0ac \ub54c \uc9c8\ubb38 (11/12): "\uac8c\ubcf4\ub9b0 \ube48\uc18d\uc5d0 \uba39\uc5b4\ub3c4 \ub3fc?"\uc5d0 AI \ub2f5\uc774 \ub450 \ubc88 \ub9c9\ud600 "\ud310\ub2e8\ud558\uae30 \uc5b4\ub824\uc6cc\uc694"\ub9cc \ub098\uac14\uc5b4\uc694
 # \uacf5\uc2dd \uc790\ub8cc\uc5d0 "\uacf5\ubcf5\uc2dc\ub97c \ud53c\ud574 \ubcf5\uc6a9"\uc774 \uc788\ub294\ub370\ub3c4\uc694. \ucabc\uac1c\uae30 \uc9c8\ubb38\ucc98\ub7fc \uacf5\uc2dd \ubb38\uc7a5\uc744 \ucf54\ub4dc\uac00 \ucc3e\uc544 \uadf8\ub300\ub85c \ubcf4\uc5ec \uc918\uc694
@@ -116,6 +120,20 @@ def _note(check: dict | None, **values):
     """검증 결과를 부른 쪽이 준 check에 적어요 (routes/chat.py가 질문 기록에 저장). check가 없으면 아무것도 안 해요"""
     if check is not None:
         check.update(values)
+
+
+RETRY_EMPTY = "다시 쓴 답을 받지 못함"
+
+
+def _retry_generate(prompt: str) -> str | None:
+    """다시 쓰기. AI가 빈 답을 주거나 응답하지 않으면 None (11/13 실험)
+    예전엔 여기서 503이 나서 "AI 서버가 응답하지 않아요"로 끝났어요 ("머리가 아파요" 다음 "게보린 먹어도 돼?"에서 매번).
+    첫 답은 이미 받았으니, 다시 쓰기가 실패해도 아래의 원문 대체로 답해요"""
+    try:
+        return ollama_generate(prompt)
+    except HTTPException:
+        logging.warning("AI 재생성 응답 없음 → 공식 원문으로 대체")
+        return None
 
 
 def _answer_from_official_info(
@@ -368,8 +386,8 @@ def _answer_from_official_info(
 자료에서 찾을 수 없으면 확인할 수 없다고 말하세요. 자기 검증 과정에 관한 설명은 하지 마세요.
 """
         retry_started = time.monotonic()
-        rewritten = ollama_generate(repair_prompt)
-        rewrite_reason = rejection_reason(rewritten)
+        rewritten = _retry_generate(repair_prompt)
+        rewrite_reason = rejection_reason(rewritten) if rewritten else RETRY_EMPTY
         _note(check, retry_ms=round((time.monotonic() - retry_started) * 1000))
         if rewrite_reason is None:
             _note(check, check_result="retry_pass")
@@ -392,8 +410,8 @@ def _answer_from_official_info(
 이미 선택된 제품을 다시 묻지 마세요. 자기 검증 과정에 관한 설명도 하지 마세요.
 """
     retry_started = time.monotonic()
-    rewritten = ollama_generate(repair_prompt)
-    rewrite_reason = rejection_reason(rewritten)
+    rewritten = _retry_generate(repair_prompt)
+    rewrite_reason = rejection_reason(rewritten) if rewritten else RETRY_EMPTY
     _note(check, retry_ms=round((time.monotonic() - retry_started) * 1000))
 
     if rewrite_reason is not None:

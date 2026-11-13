@@ -198,6 +198,7 @@ export default function Chat() {
           items: result.items || [],
           itemsNote: result.items_note || '',
           candidates: result.candidates || null,   // 같은 이름의 약이 여럿: 골라서 다시 묻기
+          alternatives: result.alternatives || null, // 대표 제품으로 답했을 때 다른 제품 (11/13 실험): 고르면 다시 묻기
           interaction: result.interaction || null, // 함께 먹기 판정 (식약처 DUR) → 결과 카드
           whoSuggest: result.who_suggest || null,  // 질문 속 대상이 먹는 사람과 다르면 바꿀지 물어요
           question,
@@ -398,6 +399,27 @@ export default function Chat() {
               <p className="muted" style={{ marginTop: 0, marginBottom: 6 }}>어느 약인가요? 누르면 그 약으로 다시 물어볼게요.</p>
               <div className="drug-chips">
                 {message.candidates.map(candidate => (
+                  <button
+                    key={candidate.item_seq}
+                    type="button"
+                    className="drug-chip is-candidate"
+                    onClick={() => pickCandidate(message, candidate)}
+                    disabled={loading}
+                    title={candidate.item_name}
+                  >
+                    {baseName(candidate.item_name)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 대표 제품으로 답한 뒤 다른 제품 (11/13 실험): 고르면 그 약을 담고 방금 질문을 다시 물어요 */}
+          {message.alternatives?.length > 0 && (
+            <div style={{ marginTop: 8, whiteSpace: 'normal' }}>
+              <p className="muted" style={{ marginTop: 0, marginBottom: 6 }}>다른 제품이면 골라 주세요. 누르면 그 약으로 다시 물어볼게요.</p>
+              <div className="drug-chips">
+                {message.alternatives.map(candidate => (
                   <button
                     key={candidate.item_seq}
                     type="button"
