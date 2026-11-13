@@ -13,3 +13,4 @@ resources:
   - dict-job.yaml
   - backup.yaml
   - ops.yaml
+  - push-worker.yaml

@@ -1,0 +1,43 @@
+# 복약 알림 발송 (docker-compose.yml의 push_worker와 같은 것)
+# 백엔드와 같은 이미지에서 실행 명령만 바꿔요. 15초마다 DB를 보고, 알림 시간이 된 알람을 웹 푸시로 보내요
+# (backend/app/services/push_worker.py). 웹 요청을 받지 않아서 Service가 없어요
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: push-worker
+  namespace: medi-info
+spec:
+  replicas: 1   # 2개로 늘려도 같은 알림을 두 번 보내지는 않지만(push_delivery_log로 먼저 잡은 쪽만 보냄) 1개면 충분해요
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app: push-worker
+  template:
+    metadata:
+      labels:
+        app: push-worker
+    spec:
+      # 바깥(구글 푸시 서버 fcm.googleapis.com)으로 나가요. 백엔드와 같은 이유로 같은 값
+      securityContext:
+        sysctls:
+          - name: net.ipv4.ip_local_port_range
+            value: "44620 48715"
+      containers:
+        - name: push-worker
+          image: localhost:5000/medi-backend:dev   # deploy.sh가 :dev를 그때 버전으로 바꿔요 (백엔드와 같은 이미지)
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "app.services.push_worker"]
+          envFrom:
+            - configMapRef:
+                name: backend-config
+            - secretRef:
+                name: medi-secrets       # DB 접속
+            - secretRef:
+                name: vapid-keys         # 푸시 서명 키. deploy.sh가 처음 한 번 만들어요
+          resources:
+            requests:
+              cpu: 20m
+              memory: 96Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
