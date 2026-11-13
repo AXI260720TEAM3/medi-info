@@ -39,7 +39,7 @@ from ..deps import get_optional_user
 from ..services.my_meds import get_profile
 from ..services.safety import CAUTION_MESSAGES, check_safety, add_disclaimer, caution_targets
 from ..services.drug_type import (
-    DUR_TARGETS, TARGET_NAMES, TYPE_MEANINGS, find_drug_type, type_cautions, type_cautions_answer,
+    DUR_TARGETS, TARGET_NAMES, TYPE_MEANINGS, TYPE_SYMPTOMS, find_drug_type, type_cautions, type_cautions_answer,
 )
 from ..services.synonym import common_symptoms, find_symptom
 
@@ -69,6 +69,7 @@ ALREADY_TAKEN = re.compile(r"먹었|먹은|먹여버|먹였|삼켰|마셨|복용
 REDIRECT_DRUG_LIMIT = 5
 REDIRECT_LIST_NOTE = "효능에 이 증상이 적힌 약의 일부예요. 순서는 추천이 아니에요."
 REDIRECT_SEARCH_NOTE = "약 찾기에서 증상이나 약 이름으로 약 정보를 찾아볼 수 있어요."
+TYPE_LIST_NOTE = "효능에 이 종류의 쓰임이 적힌 약의 일부예요. 순서는 추천이 아니에요."
 INGREDIENT_PICK_LIMIT = 10
 GUIDE_ANSWER = (
     "약에 대해 궁금한 점을 물어봐 주세요. '타이레놀 하루에 몇 번 먹어요?'처럼 약 이름과 함께 물으면 "
@@ -223,6 +224,15 @@ def _drug_cautions_answer(item_name: str, item_seq: str, targets: list[str], bas
             lines.append(f"{label_source}에서도 {label} 관련 내용을 찾지 못했어요. 자료에 없다고 안전하다는 뜻은 아니에요.")
         lines.append(CAUTION_MESSAGES[target])
     return "\n".join(lines)
+
+
+def _ro(word: str) -> str:
+    """'로/으로' 고르기: 받침이 없거나 ㄹ 받침이면 '로' (해열제로, 두통약으로)"""
+    last = ord(word[-1]) - 0xAC00 if word else -1
+    if not 0 <= last <= 11171:
+        return "로"
+    final = last % 28
+    return "로" if final in (0, 8) else "으로"
 
 
 def _ref(drug: dict) -> dict:
@@ -499,6 +509,31 @@ def ask(
         result["items_note"] = REDIRECT_LIST_NOTE if items else REDIRECT_SEARCH_NOTE
         return result
 
+    def _by_drug_type(drug_type: str, profile: str | None):
+        """'두통약'·'해열제'·'수면유도제'처럼 약 종류로 물었을 때 (11/12)
+        임부·소아·노인이면 그 종류의 대표 성분 DUR 자료 (목록은 증상 질문처럼 보여 주지 않아요)
+        아니면 그 종류에 쓰는 약 목록. 예전에는 '두통약'을 약 이름으로 찾다가 "정확한 의약품을 찾지 못했어요"로 끝났어요"""
+        targets = [t for t in caution_targets(question, profile) if t in DUR_TARGETS]
+        if targets:
+            log_meta["question_type"] = "약확인"
+            return reply(
+                type_cautions_answer(type_cautions(drug_type, targets)),
+                source="식품의약품안전처 DUR", risk=risk,
+            )
+        log_meta["question_type"] = "증상"
+        try:
+            _, items = search_by_efcy(TYPE_SYMPTOMS[drug_type], size=REDIRECT_DRUG_LIMIT)
+        except httpx.HTTPError:
+            items = []
+        result = reply(
+            f"'{drug_type}'{_ro(drug_type)} 쓰는 약을 찾아봤어요. 어떤 약이 맞는지는 약사와 상담해 보세요. "
+            "약 이름을 알려 주시면 그 약의 공식 정보로 답할게요. 아래 약을 누르면 자세한 정보를 볼 수 있어요.",
+            source=SOURCE, risk=risk,
+        )
+        result["items"] = [{"item_seq": i["item_seq"], "item_name": i["item_name"], "entp_name": i["entp_name"]} for i in items]
+        result["items_note"] = TYPE_LIST_NOTE if items else REDIRECT_SEARCH_NOTE
+        return result
+
     def emergency_reply(answer: str, source: str | None = None):
         result = {**make_reply(
             answer,
@@ -672,6 +707,11 @@ def ask(
             if pick:
                 return None, str(pick["item_seq"])
             return pick_reply(PICK_MESSAGE, candidates), None
+        # 약 종류로 물음 ("해열제 알려줘", "임신 중인데 두통약 먹어도 돼?"). 담긴 약을 가리키면("이 약") 그 약 이야기
+        # '두통약'을 약 이름으로 찾다가 못 찾으면 아래에서 "찾지 못했어요"로 끝나서, 이름 처리보다 먼저 봐요 (11/12)
+        drug_type = find_drug_type(question)
+        if drug_type and not (current_seq and DRUG_REFERENCE.search(question)):
+            return _by_drug_type(drug_type, profile), None
         if named.get("name"):
             # 이름은 적었는데 못 찾음. 담긴 약도 없으면 바로 안내, 있으면 ③에서 AI 판단으로
             if not current_seq:
@@ -687,14 +727,6 @@ def ask(
                 log_meta["question_type"] = "증상"
                 return reply(SYMPTOM_CARE_ANSWER.format(symptom=symptom), source="안내", risk=risk), None
             if not (current_seq and DRUG_REFERENCE.search(question)):
-                drug_type = find_drug_type(question)
-                targets = [t for t in caution_targets(question, profile) if t in DUR_TARGETS] if drug_type else []
-                if targets:
-                    log_meta["question_type"] = "약확인"
-                    return reply(
-                        type_cautions_answer(type_cautions(drug_type, targets)),
-                        source="식품의약품안전처 DUR", risk=risk,
-                    ), None
                 if category == "기타" and not new_drug_name:
                     return reply(GUIDE_ANSWER, source="안내", risk=risk), None
                 if not current_seq and not (drug_action == "switch" and new_drug_name):

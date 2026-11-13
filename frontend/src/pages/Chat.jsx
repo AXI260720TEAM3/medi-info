@@ -392,8 +392,6 @@ export default function Chat() {
             </div>
           )}
 
-          {needsPharmacy(message, index === messages.length - 1) && <OpenPharmacies />}
-
           {/* 같은 이름의 약이 여럿 (API 계약 2-2 candidates): 고르면 그 약을 담고 방금 질문을 다시 물어요 */}
           {message.candidates?.length > 0 && (
             <div style={{ marginTop: 8, whiteSpace: 'normal' }}>
@@ -440,6 +438,9 @@ export default function Chat() {
                 출처: {message.source}
               </p>
             )}
+
+          {/* 약국은 답의 맨 아래 (11/13): 답 → 약 목록·후보 → 출처 → 약국 순서. 예전엔 약국이 약 목록보다 위에 있었어요 */}
+          {needsPharmacy(message, index === messages.length - 1) && <OpenPharmacies />}
         </div>
       ))}
 
