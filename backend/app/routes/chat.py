@@ -1006,6 +1006,9 @@ def ask(
         drug_type = find_drug_type(question)
         if drug_type and not (current_seq and DRUG_REFERENCE.search(question)):
             return _by_drug_type(drug_type, profile), None
+        # AI가 증상 이름('두통')을 약 이름으로 뽑았으면 약 이름이 아니라 증상이에요 (11/13: "두통이 있어요" → "찾지 못했어요")
+        if (named.get("name") or "").replace(" ", "") in {s.replace(" ", "") for s in common_symptoms()}:
+            named["name"] = None
         if named.get("name"):
             # 이름은 적었는데 못 찾음. 담긴 약도 없으면 바로 안내, 있으면 ③에서 AI 판단으로
             # ① F (11/13 실험): 함께 먹기 질문이면 조각마다 찾아 봐요 (전체 문장에서 '혈압약'을 이름으로 뽑는 일이 있어요)

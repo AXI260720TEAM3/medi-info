@@ -12,11 +12,18 @@ def find_symptom(question: str):
     joined = question.replace(" ","")
 
     hits = []
-    for row in _load_words():
+    rows = _load_words()
+    for row in rows:
         pos = joined.find(row["word"])
         if pos != -1:
             hits.append((pos, row["standard"]))
-    
+    # 공식 증상 이름을 그대로 쓴 질문도 찾아요 (11/13: "두통이 있어요"·"두통"은 사전의 일상어 '머리가 아프'에 없어서
+    # AI에게 넘어갔고, AI가 '두통'을 약 이름으로 읽으면 "의약품을 찾지 못했어요"로 끝났어요)
+    for standard in {row["standard"] for row in rows}:
+        pos = joined.find(standard.replace(" ", ""))
+        if pos != -1:
+            hits.append((pos, standard))
+
     if not hits:
         return None
     return min(hits)[1]
