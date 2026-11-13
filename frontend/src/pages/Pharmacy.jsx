@@ -67,7 +67,7 @@ const ICON_BTN = { width: 44, height: 44, flex: 'none', borderRadius: 12, backgr
 const GEO_ERROR = {
   1: '위치 권한이 꺼져 있어요. 브라우저 설정에서 허용하거나 아래에서 지역으로 찾아 주세요.',
   2: '지금 위치를 알 수 없어요. 아래에서 지역으로 찾아 주세요.',
-  3: '위치를 찾는 데 너무 오래 걸려요. 다시 눌러 보거나 지역으로 찾아 주세요.',
+  3: '위치를 찾는 데 너무 오래 걸려요. 실내라면 창가에서 다시 눌러 보거나, 휴대폰 설정의 위치 > Wi-Fi 검색을 켜 보세요. 아래에서 지역으로 찾아도 돼요.',
 }
 
 function Pharmacy() {
@@ -137,7 +137,9 @@ function Pharmacy() {
         go({ lat: pos.coords.latitude.toFixed(5), lon: pos.coords.longitude.toFixed(5) })
       },
       err => setGeo({ busy: false, error: GEO_ERROR[err.code] ?? GEO_ERROR[2] }),
-      { timeout: 10000 },
+      // 실내 휴대폰은 GPS를 새로 잡는 데 10초를 넘기기 쉬워요 (실내에서 '너무 오래 걸려요', 창가에선 됨)
+      // 5분 안에 찾은 위치가 있으면 바로 쓰고(약국 찾기엔 충분), 새로 찾을 땐 20초까지 기다려요
+      { timeout: 20000, maximumAge: 300000 },
     )
   }
 
