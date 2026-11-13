@@ -1,4 +1,6 @@
 import json
+import re
+
 import httpx
 from ..config import OLLAMA_NUM_CTX, OLLAMA_URL
 
@@ -32,6 +34,11 @@ SYSTEM = (
     "아세트아미노펜 들어간 약 → ingredient=아세트아미노펜 / 종근당 약 → company=종근당"
 )
 
+# 증상은 한글만 받아요 (11/13): qwen이 '콧물'을 '鼽'·'⿰⿱鼻水'처럼 한자로 쓰기도 해요.
+# 그대로 두면 약 찾기는 효능 검색이 0건이고, AI 질문은 "'鼽'은(는) 진료가 먼저…"처럼 답해요
+HANGUL_WORD = re.compile(r"[가-힣]+(?:[\s·,/][가-힣]+)*")
+
+
 def parse_query(text):
     res = httpx.post(
         f"{OLLAMA_URL}/api/chat",
@@ -48,4 +55,8 @@ def parse_query(text):
         timeout=60,
     )
     res.raise_for_status()
-    return json.loads(res.json()["message"]["content"])
+    parsed = json.loads(res.json()["message"]["content"])
+    symptom = parsed.get("symptom")
+    if symptom and not HANGUL_WORD.fullmatch(str(symptom).strip()):
+        parsed["symptom"] = None
+    return parsed

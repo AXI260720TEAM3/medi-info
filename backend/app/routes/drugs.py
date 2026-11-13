@@ -1,3 +1,4 @@
+import logging
 from functools import lru_cache
 
 import httpx
@@ -37,8 +38,14 @@ def drug_list(q: str, page: int= Query(1, ge=1)):
 def drug_smart(text: str, page: int = Query(1, ge=1)):
     try:
         parsed = dict(cached_parse(text))
-    except httpx.HTTPError:
-        raise HTTPException(status_code=503, detail=AI_DOWN)
+    except (httpx.HTTPError, ValueError, KeyError):
+        # AI가 검색어를 못 만들어도 503으로 끝내지 않고, 증상 사전 → 이름 검색으로 이어서 찾아요 (11/13)
+        # 예: "콧물이 나요" → qwen이 '콧물'을 한자로 쓰려다 같은 글자를 되풀이해 Ollama가 멈춤
+        #     ("prediction aborted, token repeat limit reached", 500) → 화면에 "AI 서버가 응답하지 않아요"
+        logging.warning("약 찾기 AI 검색어 변환 실패 → 사전·이름 검색으로: %r", text)
+        symptom = find_symptom(text)
+        parsed = {"drug_name": None if symptom else text.strip(), "ingredient": None, "company": None,
+                  "symptom": symptom, "ai_failed": True}
     parsed["symptom"] = find_symptom(text) or parsed["symptom"]
 
     try:
