@@ -163,13 +163,47 @@ LABEL_WORDS = {
 LABEL_STRONG = re.compile(r"복용하지\s*마|투여하지\s*말|사용하지\s*마|금기")
 LABEL_SENTENCE_LIMIT = 3
 
+# 가격·파는 곳 질문 (11/13 질문 100개 시험): 공식 자료에 없는데 AI가 성분을 말하거나 "편의점에서도 판매됩니다"라고 지어냈어요
+# '얼마'는 "얼마나 먹어요?"·"하루 최대 얼마?"(용량)와 겹쳐서, 값을 묻는 말끝일 때만 봐요
+PRICE_QUESTION = re.compile(
+    r"가격|약값|얼마(?:예요|에요|야|인가요|인지|해요|하나요|하죠|정도\s*해)|"
+    r"편의점|어디서\s*(?:사|팔|구매|구입)|파는\s*(?:곳|데)|판매(?:처|해|하)"
+)
+PRICE_ANSWER = (
+    "식약처 공식 자료에는 약 가격이나 파는 곳 정보가 없어요. "
+    "가격은 약국마다 다를 수 있으니 약국에 물어봐 주세요."
+)
+
+# 약이 하나뿐인 함께 먹기 질문에서, 질문 속 말로 그 약 설명서를 찾아요 (11/13: "혈압약 먹는데 게보린 먹어도 돼요?"
+# → "약을 하나 더 담아 주세요"만. 게보린 설명서에는 "…고혈압 … 는 의사 또는 약사와 상의하십시오"가 있어요)
+#   (질문에서 찾을 말, 설명서에서 찾을 말)
+TOGETHER_LABEL_WORDS = (
+    (r"혈압", r"고혈압|혈압"),
+    (r"당뇨", r"당뇨"),
+    (r"갑상", r"갑상"),
+    (r"천식", r"천식"),
+    (r"궤양|위염", r"궤양"),
+    (r"간\s*(?:질환|이\s*안\s*좋|수치)|간장애", r"간장애|간질환"),
+    (r"신장|콩팥", r"신장|콩팥"),
+    (r"우유", r"우유"),
+    (r"커피|카페인", r"카페인|커피"),
+    (r"(?<!수)술|음주|알코올", r"(?<!수)술|음주|알코올"),
+)
+TOGETHER_LABEL_FIELDS = ("atpn_warn", "atpn", "intrc")
+# 상호작용으로 분류되지 않아도 "~먹는데", "~랑 같이"면 함께 먹기 질문으로 봐요
+TAKING_WITH = re.compile(r"먹는데|먹고\s*있|복용\s*중|드시는데|드시고\s*있|마셨는데|마시고|같이|함께|랑\s|이랑|하고\s")
+
 
 def _label_sentences(drug: dict, target: str) -> list[str]:
-    """주의사항(atpn_warn·atpn)에서 대상 말이 든 문장. 금지 문장이 먼저, 최대 3개
+    """주의사항(atpn_warn·atpn)에서 대상 말이 든 문장. 금지 문장이 먼저, 최대 3개"""
+    return _find_sentences(drug, LABEL_WORDS[target])
+
+
+def _find_sentences(drug: dict, pattern: str, fields=("atpn_warn", "atpn")) -> list[str]:
+    """설명서에서 pattern이 든 문장. 금지 문장이 먼저, 최대 3개
     설명서 문장은 대상을 10개씩 나열해서 길어요: 대상 부분 앞뒤와 문장 끝(상의하십시오/복용하지 마십시오)만 남겨요"""
-    pattern = LABEL_WORDS[target]
     found = []
-    for field in ("atpn_warn", "atpn"):
+    for field in fields:
         # 번호 뒤의 점("(7. 임부 …")에서는 나누지 않아요 (허가정보는 번호 목록이 많아요)
         for sentence in re.split(r"(?<=[^\d][.。])\s+|\n+", str(drug.get(field) or "")):
             sentence = re.sub(r"\s+", " ", sentence).strip()
@@ -233,6 +267,12 @@ def _ro(word: str) -> str:
         return "로"
     final = last % 28
     return "로" if final in (0, 8) else "으로"
+
+
+def _eun(word: str) -> str:
+    """'은/는' 고르기: 받침이 있으면 '은' (감기약은, 해열제는)"""
+    last = ord(word[-1]) - 0xAC00 if word else -1
+    return "은" if 0 <= last <= 11171 and last % 28 else "는"
 
 
 def _ref(drug: dict) -> dict:
@@ -519,6 +559,14 @@ def ask(
             return reply(
                 type_cautions_answer(type_cautions(drug_type, targets)),
                 source="식품의약품안전처 DUR", risk=risk,
+            )
+        # "비타민이랑 감기약 같이 먹어도 돼?": 함께 먹기 질문이에요. 목록이 아니라 제품 이름을 물어요 (11/13)
+        if TOGETHER_WORDS.search(question):
+            log_meta["question_type"] = "함께먹기"
+            return reply(
+                f"{drug_type}{_eun(drug_type)} 제품마다 성분이 달라서, 약 종류만으로는 함께 먹어도 되는지 확인할 수 없어요. "
+                "드시는 약의 제품 이름을 알려 주시거나 [+ 약 추가]로 담아 주시면 식약처 DUR 자료로 확인해 드릴게요.",
+                source="안내", risk=risk,
             )
         log_meta["question_type"] = "증상"
         try:
@@ -872,6 +920,29 @@ def ask(
         return reply(
             FOLLOWUPS[analysis["missing"]], item_seq, item_name, "대화 안내", risk,
             category if category != "기타" else None,
+        )
+
+    # 가격·파는 곳: 공식 자료에 없어요. AI에 맡기면 다른 내용을 말하거나 지어내요 (11/13)
+    if PRICE_QUESTION.search(question):
+        return reply(PRICE_ANSWER, item_seq, item_name, "안내", risk, category)
+
+    # 질환·음식과 함께 먹어도 되는지 (11/13): "혈압약 먹는데 게보린 먹어도 돼요?", "우유랑 같이 먹어도 돼요?"
+    # 설명서에서 그 말이 든 문장을 그대로 보여 줘요. 없으면 없다고 말해요 (AI는 "효과가 줄어들 수 있어요"처럼 지어냈어요)
+    asked_words = [(m.group(0), label) for asked, label in TOGETHER_LABEL_WORDS if (m := re.search(asked, question))]
+    if risk == "개인 복용 질문" and asked_words and (category == "상호작용" or TAKING_WITH.search(question)):
+        notes = []
+        for _, label in asked_words:
+            notes += [n for n in _find_sentences(drug, label, TOGETHER_LABEL_FIELDS) if n not in notes]
+        words = ", ".join(dict.fromkeys(word for word, _ in asked_words))
+        lines = (
+            [f"{base_name(item_name)} 설명서에 이런 내용이 있어요."] + [f"- {note}" for note in notes[:LABEL_SENTENCE_LIMIT]]
+            if notes else
+            [f"{base_name(item_name)} 설명서에는 '{words}'에 관한 안내가 없어요. 설명서에 없다고 괜찮다는 뜻은 아니니 약사와 상담해 주세요."]
+        )
+        return reply(
+            "\n".join(lines + ["", "함께 드시는 약이 있으면 제품 이름을 알려 주시거나 [+ 약 추가]로 담아 주세요. "
+                                   "식약처 DUR 자료로 함께 먹어도 되는지 확인해 드릴게요."]),
+            item_seq, item_name, SOURCE, risk, category,
         )
 
     # 약이 하나뿐인 개인 병용 질문: DUR 대조 없이 AI가 판단하지 않아요 (#94)
