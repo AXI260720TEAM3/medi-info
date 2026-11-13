@@ -173,13 +173,15 @@ function MyMeds() {
 
       </div>
     )}
-    {meds.length >= 2 && <MedCheck key={checkKey} />}
+    {/* key는 이름을 붙여 서로 다르게 (11/13): MedCheck와 MedReminder가 둘 다 key 0이라 React가 헷갈려서
+        점검을 8번 부르고, 지우지 못한 "점검하는 중이에요"가 3개 남았어요 */}
+    {meds.length >= 2 && <MedCheck key={`check-${checkKey}`} />}
 
    <MedHistory
   meds={meds}
   onChanged={() => setReminderKey(key => key + 1)}
 />
-<MedReminder key={reminderKey} />
+<MedReminder key={`reminder-${reminderKey}`} />
     </div>
     <aside className="mymeds-side">
       {/* 약이 없어도 늘 보여요. 프로필은 AI 질문 답에도 쓰여서, 약을 다 지운 뒤에도 바꿀 수 있어야 해요 (11/12) */}
