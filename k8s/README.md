@@ -28,6 +28,7 @@
 | `privacy-cron.yaml` | 매일 질문 기록 정리 (PR #74) |
 | `backup.yaml` | 매일 DB 백업 → `backups/` (커밋 안 함, 최근 3개). 폴더 경로는 `deploy.sh`가 채워요 |
 | `ops.yaml` | 운영 API (관리자 화면 운영 탭). 전용 계정·권한(RBAC), 백엔드만 들어오게(NetworkPolicy) |
+| `push-worker.yaml` | 복약 알림 발송 (백엔드와 같은 이미지, 15초마다 알림 시간이 된 알람을 웹 푸시로). 키는 Secret `vapid-keys` |
 | `dict-job.yaml` | 배포할 때마다 사전 적재 (`data/dict/*.csv` → 위험 증상·주의 대상·고정 문구·동의어). 이게 없으면 AI 답이 500 (고정 문구가 없어서) |
 | `deploy.sh` | 이미지 만들기 → 로컬 저장소에 올리기 → Secret 만들기 → 적용 |
 | `cluster/` | 클러스터에 **한 번만** 하는 설정 (아래) |
@@ -149,6 +150,14 @@ kubectl -n medi-info logs job/purge-now
 - `OPS_TOKEN`은 `deploy.sh`가 처음 한 번 무작위로 만들어 Secret `ops-token`에 넣어요(파일로 안 남김).
 - 관리자 API는 `ADMIN_HOSTS`(medi.localhost)로 온 요청만 받아요. **Funnel 주소로는 404**라 바깥에서는 관리자 화면이 없는 것처럼 보여요.
 - compose에는 ops가 없어서 운영 탭은 k8s에서만 돼요.
+
+## 복약 알림 (웹 푸시)
+
+- `push-worker`가 15초마다 DB를 보고, 알림 시간이 된 알람을 **"이 기기 알림 켜기"를 누른 기기**로 보내요.
+- 서명 키(VAPID) 한 쌍은 `deploy.sh`가 처음 한 번 만들어 Secret `vapid-keys`에 넣어요(파일로 안 남김). 백엔드는 공개키를, push-worker는 비밀키를 써요.
+- **키를 지우거나 바꾸면** 이미 켠 기기의 구독이 쓸모없어져요. 각 기기에서 알림을 껐다가 다시 켜야 해요.
+- 지금 발송 코드(`push_sender.py`)는 **Chrome 계열(fcm.googleapis.com)**로만 보내요. 아이폰 Safari·Firefox 기기는 켜도 오지 않아요.
+- 발송 기록: `kubectl -n medi-info logs deploy/push-worker`
 
 ## DB에 나중에 더한 SQL
 

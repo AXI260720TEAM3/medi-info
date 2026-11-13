@@ -48,6 +48,27 @@ if ! kubectl -n $NS get secret ops-token >/dev/null 2>&1; then
   kubectl -n $NS create secret generic ops-token \
     --from-literal=token="$(python3 -c 'import secrets; print(secrets.token_hex(32))')" >/dev/null
 fi
+# 복약 알림(웹 푸시) 서명 키 한 쌍. 처음 한 번만 만들어요 (화면에도 파일에도 안 남김)
+# 키가 바뀌면 이미 켠 기기의 구독이 쓸모없어져서 "이 기기 알림 켜기"를 다시 눌러야 해요. 그래서 있으면 그대로 둬요
+# .env에 VAPID_PRIVATE_KEY·VAPID_PUBLIC_KEY가 있으면(compose와 같은 키를 쓰고 싶을 때) 그걸 써요
+if ! kubectl -n $NS get secret vapid-keys >/dev/null 2>&1; then
+  if [ -n "${VAPID_PRIVATE_KEY:-}" ] && [ -n "${VAPID_PUBLIC_KEY:-}" ]; then
+    VAPID_PRIV=$VAPID_PRIVATE_KEY VAPID_PUB=$VAPID_PUBLIC_KEY
+  else
+    # 방금 만든 백엔드 이미지에 있는 cryptography로 P-256 키를 만들어요 (이 PC의 python3에는 없을 수 있어서)
+    read -r VAPID_PRIV VAPID_PUB < <(docker run --rm --entrypoint python $REGISTRY/medi-backend:$TAG -c "
+import base64
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+b64 = lambda b: base64.urlsafe_b64encode(b).rstrip(b'=').decode()
+k = ec.generate_private_key(ec.SECP256R1())
+pub = k.public_key().public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
+print(b64(k.private_numbers().private_value.to_bytes(32, 'big')), b64(pub))")
+  fi
+  kubectl -n $NS create secret generic vapid-keys \
+    --from-literal=VAPID_PRIVATE_KEY="$VAPID_PRIV" --from-literal=VAPID_PUBLIC_KEY="$VAPID_PUB" >/dev/null
+  unset VAPID_PRIV VAPID_PUB
+fi
 # DB 초기 SQL (compose의 ./db/init)
 kubectl -n $NS create configmap db-init --from-file=db/init \
   --dry-run=client -o yaml | kubectl apply -f -
@@ -117,7 +138,7 @@ fi
 kubectl -n $NS rollout status statefulset/db --timeout=180s
 kubectl -n $NS wait --for=condition=complete job/dict-load --timeout=180s
 kubectl -n $NS logs job/dict-load
-for name in backend web ops; do
+for name in backend web ops push-worker; do
   kubectl -n $NS rollout status deploy/$name --timeout=180s
 done
 echo "열기: http://medi.localhost"

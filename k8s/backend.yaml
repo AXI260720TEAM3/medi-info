@@ -42,6 +42,8 @@ spec:
                 name: backend-config
             - secretRef:
                 name: medi-secrets
+            - secretRef:
+                name: vapid-keys      # 푸시 알림 키. 공개키를 브라우저에 줘요 (비밀키는 push-worker가 서명에 씀)
           env:
             - name: OPS_TOKEN              # 운영 API(ops)에 보내는 열쇠. deploy.sh가 처음 한 번 만들어요
               valueFrom:
