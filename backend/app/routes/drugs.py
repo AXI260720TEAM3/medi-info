@@ -4,6 +4,7 @@ from functools import lru_cache
 import httpx
 from fastapi import APIRouter, HTTPException, Query
 from ..services.drug_api import get_by_seq, search_by_efcy
+from ..services.drug_type import TYPE_SYMPTOMS
 from ..services.drug_search import search_by_company, search_by_ingredient, search_merged
 from ..services.permit_api import get_permit_detail
 from ..services.dur_api import get_ingredients
@@ -19,6 +20,12 @@ router = APIRouter(
 API_DOWN = "약 정보 서버가 응답하지 않아요. 잠시 후 다시 시도해 주세요."
 AI_DOWN = "AI 서버가 응답하지 않아요. 잠시 후 다시 시도해 주세요."
 PAGE_SIZE = 10
+
+# 약 종류 말 → 효능에서 찾을 말. AI 질문의 약 종류(TYPE_SYMPTOMS)에 검색에서 자주 쓰는 말을 더했어요
+SEARCH_TYPES = {
+    **TYPE_SYMPTOMS,
+    "소화제": "소화", "소화약": "소화", "위장약": "위장", "변비약": "변비", "설사약": "설사", "지사제": "설사",
+}
 
 
 # 같은 질문은 AI에게 한 번만 묻는다 (쪽을 넘겨도 같은 검색어를 쓰게)
@@ -48,9 +55,20 @@ def drug_smart(text: str, page: int = Query(1, ge=1)):
                   "symptom": symptom, "ai_failed": True}
     parsed["symptom"] = find_symptom(text) or parsed["symptom"]
 
+    # "두통약"·"감기약"·"소화제"는 약 이름이 아니라 약 종류예요 (11/16): AI가 "두통이 있을 때 먹는약"을
+    # drug_name '두통약'으로 바꾸면 그런 이름의 약이 없어 0건이었어요 → 효능 검색으로 찾아요
+    type_symptom = SEARCH_TYPES.get((parsed["drug_name"] or "").replace(" ", ""))
+    if type_symptom:
+        parsed["symptom"] = parsed["symptom"] or type_symptom
+        parsed["drug_name"] = None
+
     try:
         if parsed["drug_name"]:
             total, items = search_merged(parsed["drug_name"], page=page, size=PAGE_SIZE)
+            if total == 0 and parsed["symptom"]:
+                # 이름으로 못 찾았는데 증상이 있으면 효능으로 (예: AI가 "머리 아픈 약"을 없는 약 이름으로 만들 때)
+                parsed["drug_name"] = None
+                total, items = search_by_efcy(parsed["symptom"], page=page, size=PAGE_SIZE)
         elif parsed["ingredient"]:
             total, items, parsed["ingredient_en"], parsed["ingredient_all"] = search_by_ingredient(parsed["ingredient"], page=page, size=PAGE_SIZE)
         elif parsed["company"]:
