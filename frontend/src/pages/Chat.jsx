@@ -10,12 +10,33 @@ import { baseName } from '../utils/image'
 const API_URL = import.meta.env.VITE_API_URL || '/api/ask'
 const HISTORY_LIMIT = 6
 
-// 약 상세의 [이 약 질문하기]는 /chat?item_seq=…&drug_name=… 으로 와요 → 그 약 하나를 담고 ●로
-function initialDrugs() {
+// 담은 약은 이 브라우저 탭에 기억해요 (11/16): 새로고침하거나 다른 화면에 갔다 와도 그대로.
+// 탭을 닫거나 [새 대화]를 누르면 사라져요 (sessionStorage, 서버에는 저장하지 않아요)
+const SAVED_KEY = 'chat-drugs'
+
+function savedChat() {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(SAVED_KEY))
+    if (Array.isArray(saved?.drugs)) return { drugs: saved.drugs, currentSeq: saved.currentSeq ?? null }
+  } catch { /* 읽지 못하면 빈 목록 */ }
+  return { drugs: [], currentSeq: null }
+}
+
+function saveChat(drugs, currentSeq) {
+  try {
+    if (drugs.length) sessionStorage.setItem(SAVED_KEY, JSON.stringify({ drugs, currentSeq }))
+    else sessionStorage.removeItem(SAVED_KEY)
+  } catch { /* 저장이 막힌 브라우저면 이 화면에서만 기억해요 */ }
+}
+
+// 약 상세의 [이 약 질문하기]는 /chat?item_seq=…&drug_name=… 으로 와요 → 기억한 목록에 그 약을 더하고 ●로
+function initialChat() {
+  const saved = savedChat()
   const params = new URLSearchParams(window.location.search)
   const itemSeq = params.get('itemSeq') || params.get('item_seq')
   const name = params.get('drugName') || params.get('drug_name')
-  return itemSeq ? [{ item_seq: itemSeq, item_name: name || itemSeq }] : []
+  if (!itemSeq) return saved
+  return { drugs: addTo(saved.drugs, { item_seq: itemSeq, item_name: name || itemSeq }), currentSeq: itemSeq }
 }
 
 // [함께 먹어도 되는지 확인] 버튼 답 문장 (서버의 함께 먹기 답과 같은 뜻)
@@ -53,8 +74,10 @@ function needsPharmacy(message, isLast) {
 
 export default function Chat() {
   // 이 대화의 약 (API 계약 6장). 목록의 주인은 화면이고, 서버는 "담아라"(add_drugs)·"지금 약"(current_seq)만 알려줘요
-  const [drugs, setDrugs] = useState(initialDrugs)
-  const [currentSeq, setCurrentSeq] = useState(() => initialDrugs()[0]?.item_seq ?? null)
+  const [start] = useState(initialChat)
+  const [drugs, setDrugs] = useState(start.drugs)
+  const [currentSeq, setCurrentSeq] = useState(start.currentSeq)
+  useEffect(() => saveChat(drugs, currentSeq), [drugs, currentSeq])
   const [chipNotice, setChipNotice] = useState('')
   const [messages, setMessages] = useState([])
   // 첫 화면에서 고른 질문은 입력칸에 채워 둬요 (보내기는 사용자가 눌러요)
@@ -105,6 +128,11 @@ export default function Chat() {
     setBand({ key: '', answer: null })
     if (window.location.search) navigate('/chat', { replace: true })
   }
+
+  // 주소로 받은 약은 목록에 담았으니 주소에서 지워요 (뺀 약이 새로고침으로 다시 담기지 않게)
+  useEffect(() => {
+    if (window.location.search) navigate('/chat', { replace: true, state: location.state })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // 답 아래의 "먹는 사람을 ○○으로 바꿀까요?": 바꾸거나 그대로를 누르면 그 답에서는 닫아요
   function settleSuggest(index, next) {
