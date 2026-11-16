@@ -1033,6 +1033,21 @@ a.source-chip:hover{
   border-radius: 16px 16px 4px 16px;
   background: var(--surface-muted);
 }
+/* 답의 약 목록: 이름을 누르면 [이 대화에 담기] [자세히 보기]가 펼쳐져요 (11/16) */
+.chat-item-name {
+  all: unset;
+  cursor: pointer;
+  color: var(--primary-text);
+}
+.chat-item-name:hover,
+.chat-item-name[aria-expanded="true"] { text-decoration: underline; }
+.chat-item-name:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.chat-item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 8px;
+}
 .chat-msg.is-assistant {     /* 답: 상자 없이 글로, 왼쪽에 얇은 파란 선 */
   align-self: flex-start;
   max-width: 100%;

@@ -79,6 +79,7 @@ export default function Chat() {
   const [currentSeq, setCurrentSeq] = useState(start.currentSeq)
   useEffect(() => saveChat(drugs, currentSeq), [drugs, currentSeq])
   const [chipNotice, setChipNotice] = useState('')
+  const [openItem, setOpenItem] = useState('')   // 답의 약 목록에서 고르기를 펼친 약 ("답 번호-품목번호")
   const [messages, setMessages] = useState([])
   // 첫 화면에서 고른 질문은 입력칸에 채워 둬요 (보내기는 사용자가 눌러요)
   const location = useLocation()
@@ -468,12 +469,37 @@ export default function Chat() {
               <p className="muted" style={{ marginTop: 0, marginBottom: 4 }}>{message.itemsNote}</p>
               {message.items.length > 0 && (
                 <ul style={{ marginTop: 0, marginBottom: 4 }}>
-                  {message.items.map(item => (
-                    <li key={item.item_seq}>
-                      <Link to={`/drugs/${item.item_seq}`}>{item.item_name}</Link>
-                      <span className="muted"> · {item.entp_name}</span>
-                    </li>
-                  ))}
+                  {message.items.map(item => {
+                    // 약 이름을 누르면 두 가지 중 고르게 해요 (11/16): 이 대화에 담기 · 자세히 보기
+                    const key = `${index}-${item.item_seq}`
+                    const inList = drugs.some(d => d.item_seq === String(item.item_seq))
+                    return (
+                      <li key={item.item_seq}>
+                        <button
+                          type="button"
+                          className="chat-item-name"
+                          aria-expanded={openItem === key}
+                          onClick={() => setOpenItem(openItem === key ? '' : key)}
+                        >
+                          {item.item_name}
+                        </button>
+                        <span className="muted"> · {item.entp_name}</span>
+                        {openItem === key && (
+                          <span className="chat-item-actions">
+                            <button
+                              type="button"
+                              className="btn btn-primary btn-small"
+                              disabled={loading || inList}
+                              onClick={() => { if (pickDrug(item)) setOpenItem('') }}
+                            >
+                              {inList ? '이미 담았어요' : '이 대화에 담기'}
+                            </button>
+                            <Link to={`/drugs/${item.item_seq}`} className="btn btn-secondary btn-small">자세히 보기</Link>
+                          </span>
+                        )}
+                      </li>
+                    )
+                  })}
                 </ul>
               )}
               <Link to="/drugs">약 찾기로 가기</Link>
