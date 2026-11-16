@@ -1026,7 +1026,8 @@ def ask(
                 log_meta["question_type"] = "증상"
                 return reply(SYMPTOM_CARE_ANSWER.format(symptom=symptom), source="안내", risk=risk), None
             if not (current_seq and DRUG_REFERENCE.search(question)):
-                if category == "기타" and not new_drug_name:
+                # 사전이 증상을 찾았으면 AI가 '기타'로 읽어도 증상 질문이에요 (11/16: "체한 것 같아" → 안내 문구로 끝났어요)
+                if category == "기타" and not new_drug_name and not find_symptom(question):
                     return reply(GUIDE_ANSWER, source="안내", risk=risk), None
                 if not current_seq and not (drug_action == "switch" and new_drug_name):
                     found = _by_ingredient_or_symptom(question, parsed, profile)
