@@ -189,6 +189,12 @@ a:hover {
   flex-direction: column;
   gap: 18px;
 }
+.med-add-row {     /* 내 약 담기 두 칸 (이름 · 사진): 넓으면 나란히, 좁으면 위아래 */
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 18px;
+  align-items: start;
+}
 .section-title {   /* 화면 안의 작은 제목 (담은 약 4개) */
   margin: 8px 0 0;
   padding-bottom: 8px;
