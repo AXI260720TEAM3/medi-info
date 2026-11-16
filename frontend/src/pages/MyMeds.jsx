@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import ErrorMessage from '../components/ErrorMessage'
 import Loading from '../components/Loading'
+import MedAddByName from '../components/MedAddByName'
 import MedCheck from '../components/MedCheck'
 import MedProfile from '../components/MedProfile'
 import MedScan from '../components/MedScan'
@@ -95,11 +96,15 @@ function MyMeds() {
     {deleteError && <ErrorMessage message={deleteError} />}
     <div className="mymeds-layout">
     <div className="mymeds-main">
-    <MedScan onAdded={handleAdded} />
+    {/* 약 담기 두 가지 (11/16): 이름으로 찾기 · 약봉지 사진. 넓으면 나란히, 좁으면 위아래 */}
+    <div className="med-add-row">
+      <MedAddByName onAdded={handleAdded} savedSeqs={meds.map(med => med.item_seq)} />
+      <MedScan onAdded={handleAdded} />
+    </div>
     <h2 className="section-title">담은 약 <span className="section-count">{meds.length}개</span></h2>
     {meds.length === 0 && (
       <p className="muted" style={{ margin: 0 }}>
-        아직 담은 약이 없어요. 약봉지 사진이나 <Link to="/drugs">약 찾기</Link>로 담아 보세요.
+        아직 담은 약이 없어요. 위에서 약 이름이나 약봉지 사진으로 담아 보세요.
       </p>
     )}
     {meds.length > 0 && (
